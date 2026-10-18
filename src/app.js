@@ -50,7 +50,7 @@ function audioDelayMs(){return((ctx.outputLatency||0)+(ctx.baseLatency||0))*1000
 
 // ---------- Stato del looper ----------
 const NL=8;
-const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,cur:0,sel:0,ev:[],
+const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,dubTake:[],cur:0,sel:0,ev:[],
  loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,undo:0,redo:0}))};
 const anyHas=()=>G.loops.some(l=>l.has||l.state==="rec"||l.state==="closing");
 function Q(){let q=G.base,k=0;while(q/2>=sr*.9&&k<3){q/=2;k++}return Math.round(q)}
@@ -65,13 +65,23 @@ const bpm=()=>G.base?60*G.beats/(G.base/sr):0;
 function gridF(q){return G.base/(G.beats*q)}
 function qIndex(ev,L){const g=gridF(ev.q),rel=ev.on-ev.comp-G.origin,q=Math.round(rel/g)*g;
  return((Math.round(q+G.origin-L.t0)%L.len)+L.len)%L.len}
+// Il tempo del primo giro è ambiguo: 2 battiti a 75 bpm o 4 a 150? beatsFor sceglie 70–140 bpm, e sopra i 140
+// la griglia diventerebbe larga il doppio: con 1/8 i levare finirebbero sul battere precedente. Se nelle note di
+// una ripresa almeno 3 su 10 cadono a 1/4 o 3/4 del battito stimato, sono ottavi in levare di un tempo doppio:
+// raddoppio i battiti (finché il tempo resta entro i 200 bpm). Male che vada la griglia diventa più fine, mai più larga.
+function checkDouble(evs){if(!G.base||!evs.length||60*G.beats*2/(G.base/sr)>200)return;
+ const b=G.base/G.beats;let c=0;
+ for(const e of evs){const f=((((e.on-e.comp-G.origin)/b)%1)+1)%1;if(Math.abs(f-.25)<.09||Math.abs(f-.75)<.09)c++}
+ if(c>=1&&c/evs.length>=.3){G.beats*=2;render()}}
 function renderRec(i){const L=G.loops[i],evs=G.ev.filter(e=>e.i===i&&e.kind==="rec");G.ev=G.ev.filter(e=>!evs.includes(e));
+ checkDouble(evs);
  const data=new Float32Array(L.len),now=nowF();
  for(const e of evs){e.done=true;const seg=renderNote(e.sound,e.note,e.vel,Math.max((e.off??now)-e.on,sr*.03));if(!seg)continue;
   let p=qIndex(e,L);for(let k=0;k<seg.length;k++){data[p]+=seg[k];if(++p===L.len)p=0}}
  send({type:"fill",i,data})}
 function commitDubNote(e){e.done=true;G.ev=G.ev.filter(x=>x!==e);const L=G.loops[e.i];if(!L.has||!L.len)return;
  const seg=renderNote(e.sound,e.note,e.vel,Math.max(e.off-e.on,sr*.03));if(!seg)return;
+ G.dubTake.push(e);checkDouble(G.dubTake);
  const idx=qIndex(e,L);let at=L.t0+idx;const min=e.on+L.len*.5;
  if(at<min)at+=Math.ceil((min-at)/L.len)*L.len;
  send({type:"pend",i:e.i,start:idx,data:seg,at})}
@@ -117,7 +127,7 @@ function close(i){const L=G.loops[i],f=nowF();
 function startDub(i){const L=G.loops[i];if(!G.running)playAll();
  G.loops.forEach((o,j)=>{if(j!==i&&o.state==="dub")endDub(j)}); // una sovraincisione alla volta
  if(L.muted){L.muted=false;L.pend=null;send({type:"gate",i,on:1,frame:nowF()})}
- send({type:"dub",i,bus:G.cur,comp:latencyFrames()});L.state="dub";L.q=SET.quant;render()}
+ send({type:"dub",i,bus:G.cur,comp:latencyFrames()});L.state="dub";L.q=SET.quant;G.dubTake=[];render()}
 function endDub(i){send({type:"undub",i});G.loops[i].state="play";rotateBus();render()}
 
 function clearLoop(i){const L=G.loops[i];
