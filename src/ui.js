@@ -42,6 +42,7 @@ function build(){
  pb.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();(G.running?stopButton:playButton)()}});
  const db=$("#dropBtn");db.addEventListener("pointerdown",e=>{e.preventDefault();playDown(true)});
  ["pointerup","pointerleave","pointercancel"].forEach(ev=>db.addEventListener(ev,playUp));
+ $("#knobBtn").onclick=cycleKnobMode;
  $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
  $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
@@ -77,7 +78,11 @@ function render(){
   b.dataset.c=loopColor(i);b.classList.toggle("sel",i===G.sel);
   b.classList.toggle("blink",L.state==="armed"||L.state==="closing"||!!L.pend);
   b.querySelector(".st").textContent=loopLabel(i);
-  b.querySelector(".vol i").style.width=Math.round(L.vol*100)+"%"});
+  // la barretta mostra il valore del modo delle manopole: volume da sinistra, pan come segno, filtro dal centro
+  const vb=b.querySelector(".vol"),vi=vb.firstChild;vb.className="vol "+knobMode;let l=0,w=L.vol*100;
+  if(knobMode==="pan"){l=(L.pan+1)*50-4;w=8}else if(knobMode==="fx"){l=Math.min(50,50+L.fx*50);w=Math.max(1,Math.abs(L.fx)*50)}
+  vi.style.left=Math.max(0,l)+"%";vi.style.width=Math.min(w,100-Math.max(0,l))+"%"});
+ $("#knobBtn").innerHTML=`MANOPOLE <b>${KNOB_NAMES[knobMode]}</b>`;
  $$(".snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||""):""});

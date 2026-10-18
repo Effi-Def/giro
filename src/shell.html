@@ -50,6 +50,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 #dubBtn{color:var(--dub);border-color:color-mix(in srgb,var(--dub) 45%,var(--line))}
 #dubBtn.on{background:var(--dub);color:#1a1205}
 .small{background:none;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font:600 15px/1 var(--f-display);letter-spacing:.06em;color:var(--dim)}
+#knobBtn b{color:var(--ink);font-weight:700}
 #qBtn.on{color:var(--sel);border-color:color-mix(in srgb,var(--sel) 55%,var(--line))}
 #midi{font:12px var(--f-mono);color:var(--rec);display:flex;align-items:center;gap:6px;white-space:nowrap}
 #midi::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
@@ -94,7 +95,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 .blink .st,.blink .rprog{animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:.25}}
 .vol{position:absolute;left:14px;right:14px;bottom:8px;height:3px;background:var(--panel2);border-radius:2px;overflow:hidden}
-.vol i{display:block;height:100%;background:var(--c);opacity:.7}
+.vol i{position:absolute;top:0;bottom:0;left:0;background:var(--c);opacity:.7}
+.vol.pan,.vol.fx{height:5px}
+.vol.pan::after,.vol.fx::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--faint)}
 .loop[data-c="empty"] .vol{visibility:hidden}
 
 .keys{display:flex;height:6px;gap:1px}
@@ -149,6 +152,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
       <button class="big" id="playBtn">▶ PLAY</button>
       <button class="big" id="dropBtn" hidden title="Tocco: drop / rientro sull'1 · tenuto: build-up (▶ sull'Axiom, B sul PC)">▶ DROP</button>
       <button class="big" id="dubBtn">● SOVRAINCIDI</button>
+      <button class="small" id="knobBtn" title="Cosa fanno le manopole: cambia col pulsante dei modi dell'Axiom, con un clic qui o col tasto M">MANOPOLE <b>VOLUME</b></button>
       <button class="small" id="qBtn" title="Rimette a tempo le note registrate (Q sul PC)">QUANTIZZA 1/16</button>
       <button class="small" id="undoBtn" title="Annulla l'ultimo strato (◀ sull'Axiom)">◀ ANNULLA</button>
       <button class="small" id="redoBtn" title="Ripristina (▶ sull'Axiom)">RIPETI ▶</button>
@@ -176,7 +180,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     <span><b>■</b> fine a tempo · tenuto: cancella tutto</span>
     <span><b>▲ ▼</b> famiglia · <b>centrale</b> suono</span>
     <span><b>◀ ▶</b> annulla / ripeti</span>
-        <span><b>Manopole 1–8</b> volume dei loop</span>
+        <span><b>Manopole 1–8</b> volume / pan / filtro (pulsante dei modi)</span>
   </div>
 </div>
 
@@ -208,9 +212,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>▲ ▼</td><td>Cambia famiglia di suoni (riprende l'ultimo suono usato in quella famiglia).</td></tr>
         <tr><td>Tasto centrale</td><td>Suono successivo nella stessa famiglia.</td></tr>
         <tr><td>Quantizza</td><td>Le note registrate vengono rimesse a tempo sulla griglia (1/16 o 1/8). Il primo loop decide il tempo: dura quanto vuoi, la griglia lo divide in parti uguali. Funziona con i suoni di Giro, non con un microfono.</td></tr>
-        <tr><td>Manopole 1–8</td><td>Volume dei loop 1–8.</td></tr>
+        <tr><td>Manopole 1–8</td><td>Volume, pan o filtro dei loop 1–8, secondo il pulsante dei modi accanto alle manopole: LED <b>Volume</b> = volume, <b>Pan</b> = sinistra/destra, <b>Inst/FX</b> = filtro (a sinistra più scuro, a destra più leggero, al centro niente), tutti spenti (modo MIDI) = volume. Il modo si vede in alto (MANOPOLE …) e si può cambiare anche con un clic lì.</td></tr>
       </table>
-      <p class="help">L'Axiom deve stare in modo MIDI: premi <b>H</b> finché i LED Volume, Pan e Inst/FX sono spenti.</p>
+      <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX: cambia solo cosa fanno le manopole. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
       <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>Spazio</kbd> play/stop · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
       <div><button class="small" id="diagStart">DIAGNOSTICA MIDI</button></div>
       <pre id="diag">—</pre>

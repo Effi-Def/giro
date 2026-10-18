@@ -47,3 +47,14 @@ c.cmd({type:'rec',i:2,bus:0,start:60000,comp:0});run(64600);
 c.cmd({type:'recEnd',i:2,end:64600,len:4000,t0:60000});run(70000);
 const L2=c.loops[2];ok(Math.abs(L2.buf[0]-1)<1e-6&&Math.abs(L2.buf[300]-.25)<1e-6,'eccedenza ripiegata sull\'inizio');
 console.log('messaggi',msgs().map(m=>m.type).join(','));
+// pan e filtro: uscita stereo con un loop di sinusoide a 2 kHz
+{const c2=new LoopCore(8000),len=800,buf=new Float32Array(len);for(let j=0;j<len;j++)buf[j]=Math.sin(2*Math.PI*j/4);
+ const L=c2.loops[0];Object.assign(L,{buf,len,t0:0,gt:1,g:L.vol});let F2=0;
+ const run2=(frames)=>{let el=0,er=0;const ins=[null,null,null];
+  for(let f=0;f<frames;f+=N){const l=new Float32Array(N),r=new Float32Array(N);c2.process(ins,l,F2,N,r);F2+=N;
+   if(f>=frames-1024)for(let k=0;k<N;k++){el+=l[k]*l[k];er+=r[k]*r[k]}}return[el,er]};
+ const [l0,r0]=run2(4096);ok(Math.abs(l0-r0)<1e-6*l0&&l0>1,'stereo al centro: sinistra e destra uguali');
+ c2.cmd({type:'pan',i:0,v:-1});const [l1,r1]=run2(4096);ok(r1<1e-6*l1&&Math.abs(l1-l0)<.01*l0,'pan tutto a sinistra: destra muta, sinistra intatta');
+ c2.cmd({type:'pan',i:0,v:0});c2.cmd({type:'fx',i:0,v:-1});const [l2]=run2(8192);ok(l2<.01*l0,'filtro passa-basso: 2 kHz quasi spenti ('+(l2/l0).toExponential(1)+')');
+ c2.cmd({type:'fx',i:0,v:0});const [l3]=run2(8192);ok(Math.abs(l3-l0)<.01*l0,'filtro al centro: suono intatto');
+ c2.cmd({type:'fx',i:0,v:.5});c2.cmd({type:'reset'});run2(N);ok(c2.loops[0].fx===.5&&c2.loops[0].vol===.8,'reset conserva volume, pan e filtro')}

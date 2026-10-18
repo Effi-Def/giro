@@ -17,21 +17,21 @@ async function initAudio(){
  try{
   const src=LoopCore.toString()+`
 class GiroLooper extends AudioWorkletProcessor{constructor(){super();this.c=new LoopCore(sampleRate);this.port.onmessage=e=>this.c.cmd(e.data)}
- process(inputs,outputs){const ins=[0,1,2].map(b=>inputs[b]&&inputs[b][0]);const o=outputs[0][0];this.c.process(ins,o,currentFrame,o.length);
+ process(inputs,outputs){const ins=[0,1,2].map(b=>inputs[b]&&inputs[b][0]);const o=outputs[0][0];this.c.process(ins,o,currentFrame,o.length,outputs[0][1]);
   if(this.c.msgs.length){this.port.postMessage(this.c.msgs);this.c.msgs=[]}return true}}
 registerProcessor("giro-looper",GiroLooper);`;
   // da file locale Chrome rifiuta i moduli blob:, quindi prima data:, poi blob:
   try{await ctx.audioWorklet.addModule("data:application/javascript;charset=utf-8,"+encodeURIComponent(src))}
   catch(_){await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([src],{type:"application/javascript"})))}
-  node=new AudioWorkletNode(ctx,"giro-looper",{numberOfInputs:3,numberOfOutputs:1,outputChannelCount:[1],channelCount:1,channelCountMode:"explicit"});
+  node=new AudioWorkletNode(ctx,"giro-looper",{numberOfInputs:3,numberOfOutputs:1,outputChannelCount:[2],channelCount:1,channelCountMode:"explicit"});
   node.port.onmessage=e=>e.data.forEach(onCoreMsg);
   liveBus.forEach((g,b)=>g.connect(node,0,b));usingWorklet=true;
  }catch(err){
   // riserva: stesso motore su ScriptProcessor
   core=new LoopCore(sr);const merger=ctx.createChannelMerger(3);liveBus.forEach((g,b)=>g.connect(merger,0,b));
-  node=ctx.createScriptProcessor(1024,3,1);merger.connect(node);
+  node=ctx.createScriptProcessor(1024,3,2);merger.connect(node);
   node.onaudioprocess=e=>{const ins=[0,1,2].map(c=>e.inputBuffer.getChannelData(c)),o=e.outputBuffer.getChannelData(0);
-   core.process(ins,o,Math.round(e.playbackTime*sr),o.length);if(core.msgs.length){const m=core.msgs;core.msgs=[];m.forEach(onCoreMsg)}};
+   core.process(ins,o,Math.round(e.playbackTime*sr),o.length,e.outputBuffer.getChannelData(1));if(core.msgs.length){const m=core.msgs;core.msgs=[];m.forEach(onCoreMsg)}};
  }
  node.connect(masterIn);
  applyMix();ready=true;
@@ -51,7 +51,7 @@ function audioDelayMs(){return((ctx.outputLatency||0)+(ctx.baseLatency||0))*1000
 // ---------- Stato del looper ----------
 const NL=8;
 const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,cur:0,sel:0,ev:[],
- loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,undo:0,redo:0}))};
+ loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,pan:0,fx:0,undo:0,redo:0}))};
 const anyHas=()=>G.loops.some(l=>l.has||l.state==="rec"||l.state==="closing");
 function Q(){let q=G.base,k=0;while(q/2>=sr*.9&&k<3){q/=2;k++}return Math.round(q)}
 function nextQ(f){const q=Q();return G.origin+Math.ceil((f-G.origin+sr*.03)/q)*q}
@@ -253,7 +253,7 @@ const holdT={};
 function padDown(i){tap(i);clearTimeout(holdT[i]);holdT[i]=setTimeout(()=>{holdT[i]=null;clearLoop(i)},800)}
 function padUp(i){clearTimeout(holdT[i]);holdT[i]=null}
 
-// ---------- MIDI (Axiom AIR Mini 32, modo MIDI, canale 1) ----------
+// ---------- MIDI (Axiom AIR Mini 32: modo MIDI canale 1, oppure HyperControl canale 16) ----------
 // pad 1–8 = note 36–43 · manopole 1–8 = CC 1–8 · ■ ▶ ● = CC 16 17 18
 // ◀ ▶ ▲ ▼ = CC 19 20 21 22 · tasto centrale = CC 23 · sustain = CC 64
 const BTN={18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepFamily(1),22:()=>stepFamily(-1),23:()=>stepInFamily(1)};
@@ -273,16 +273,48 @@ function selStep(d){const ids=G.loops.map((L,i)=>L.has?i:-1).filter(i=>i>=0);if(
 let pbArmed=true;
 function pitchBend(v){if(Math.abs(v-8192)<1500){pbArmed=true;return}
  if(!pbArmed||!ready)return;if(v>12288){pbArmed=false;selStep(1)}else if(v<4096){pbArmed=false;selStep(-1)}}
-function onMIDI(e){const [st,d1,d2=0]=e.data,type=st&0xf0;if(st>=0xF0)return;
+// ---------- Manopole: volume, pan o filtro del loop ----------
+// Il pulsante dei modi dell'Axiom (LED Volume / Pan / Inst-FX, tutti spenti = MIDI) manda in HyperControl
+// CC 58 entrando in Volume o in Pan, CC 59 in Inst/FX, CC 60 in MIDI (canale 16, come lo script di Ableton).
+// In MIDI le manopole tornano volume. Dallo schermo (o col tasto M) si cambia modo anche senza Axiom.
+const KNOB_MODES=["vol","pan","fx"],KNOB_NAMES={vol:"VOLUME",pan:"PAN",fx:"FILTRO"};
+let knobMode="vol",hcMode="midi";
+function setKnobMode(m){knobMode=m;render();
+ flashHint({vol:"Manopole: <b>VOLUME</b> dei loop.",pan:"Manopole: <b>PAN</b> — gira per spostare il loop a sinistra o a destra.",
+  fx:"Manopole: <b>FILTRO</b> — a sinistra il loop si scurisce, a destra si alleggerisce, al centro niente."}[m])}
+function cycleKnobMode(){setKnobMode(KNOB_MODES[(KNOB_MODES.indexOf(knobMode)+1)%3])}
+function hcModeButton(cc){
+ if(cc===58){hcMode=hcMode==="vol"?"pan":"vol";setKnobMode(hcMode)}
+ else if(cc===59){hcMode="fx";setKnobMode("fx")}
+ else{hcMode="midi";setKnobMode("vol")}}
+function knob(i,v){const L=G.loops[i];
+ if(knobMode==="vol"){L.vol=v/127;send({type:"vol",i,v:L.vol});render();return}
+ let x=Math.max(-1,Math.min(1,(v-64)/63));if(Math.abs(x)<.03)x=0;
+ if(knobMode==="pan"){L.pan=x;send({type:"pan",i,v:x});
+  flashHint(`Loop ${i+1}: ${x===0?"al centro":Math.round(Math.abs(x)*100)+"% a "+(x<0?"sinistra":"destra")}`)}
+ else{L.fx=x;send({type:"fx",i,v:x});
+  flashHint(`Loop ${i+1}: ${x===0?"filtro spento":x<0?"più scuro (passa-basso) "+Math.round(-x*100)+"%":"più leggero (passa-alto) "+Math.round(x*100)+"%"}`)}
+ render()}
+// HyperControl (canale 16): stessi comandi del modo MIDI con altri numeri
+const HC_CC={116:16,117:17,118:18,99:19,100:20,101:21,102:22,98:23};
+function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;if(st>=0xF0)return;
+ const ch=st&15;
+ // la diagnostica mostra i messaggi come arrivano, prima di tradurre quelli HyperControl
+ if(diagOn&&(type===0x90&&d2>0||type===0xB0)){const k=(type===0xB0?"CC ":"nota ")+d1+" · canale "+(ch+1);if(!diagLines.has(k)){diagLines.set(k,1);$("#diag").textContent=[...diagLines.keys()].join("\n")}}
+ if(ch===15&&type===0xB0){
+  if(d1>=58&&d1<=60){if(d2>63)hcModeButton(d1);return}
+  if(d1>=33&&d1<=40){if(ready)knob(d1-33,d2);return}
+  if(HC_CC[d1])d1=HC_CC[d1]}
+ // pad in HyperControl: note 81–84 = pad 1–4, 85–88 = pad 5–8 (canale 15, banco B sul 16)
+ if(ch>=14&&(type===0x90||type===0x80)&&d1>=81&&d1<=88)d1=d1-81+36;
  const on=type===0x90&&d2>0,off=type===0x80||(type===0x90&&d2===0),cc=type===0xB0;
  if(type===0xE0){if(diagOn&&!diagLines.has("pitch bend")){diagLines.set("pitch bend",1);$("#diag").textContent=[...diagLines.keys()].join("\n")}return pitchBend(d1|(d2<<7))}
- if(diagOn&&(on||cc)){const k=(cc?"CC ":"nota ")+d1+" · canale "+((st&15)+1);if(!diagLines.has(k)){diagLines.set(k,1);$("#diag").textContent=[...diagLines.keys()].join("\n")}}
  if((on||off)&&d1>=36&&d1<=43){const i=d1-36;if(on){flash(`[data-loop="${i}"]`);padDown(i)}else padUp(i);return}
  if(cc){if(d1===64)return setSustain(d2>=64);
   if(d1===16){if(d2>63){flash(`[data-key="16"]`);stopButton();if(stopRel)stopPress()}else{stopRel=true;stopRelease()}return}
   if(d1===17){if(d2>63){flash(`[data-key="17"]`);playDown(playRel)}else{playRel=true;playUp()}return}
   if(BTN[d1]){if(d2>63){flash(`[data-key="${d1}"]`);BTN[d1]()}return}
-  if(d1>=1&&d1<=8){const i=d1-1;G.loops[i].vol=d2/127;send({type:"vol",i,v:d2/127});render();return}
+  if(d1>=1&&d1<=8){if(ready)knob(d1-1,d2);return}
   return}
  if(on)noteOn(d1,d2/127);else if(off)noteOff(d1)}
 
@@ -300,6 +332,7 @@ addEventListener("keydown",e=>{
  if(k==="r")return dubButton();
  if(k==="b")return playDown(true); // come ▶: tocco = drop, tenuto = build-up
  if(k==="q")return cycleQuant();
+ if(k==="m")return cycleKnobMode();
  if(e.key==="Backspace"){e.preventDefault();return undoSel(false)}
  if(e.key==="ArrowUp"){e.preventDefault();return stepFamily(1)}
  if(e.key==="ArrowDown"){e.preventDefault();return stepFamily(-1)}

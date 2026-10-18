@@ -35,7 +35,7 @@ Dopo ogni modifica: `python tools/build.py`, poi i test.
 
 **Audio.** I suoni dal vivo escono su 3 bus (`liveBus`) che vanno sia al master sia agli ingressi dell'AudioWorklet. I bus ruotano (`G.cur`) dopo ogni registrazione così le code delle note (tails) finiscono nel loop giusto. Uscita: `masterIn` → filtro → riverbero a convoluzione → compressore → `masterOut`.
 
-**LoopCore (`core.js`).** Classe autonoma, lavora in frame audio assoluti. Ogni loop è un buffer mono riprodotto all'indice `(F - t0) mod len`. Riceve comandi via `port.postMessage`: `rec`, `recEnd`, `cancelRec`, `dub`, `undub`, `gate` (play/stop a un frame preciso), `vol`, `shift`, `clear`, `undo`, `redo`, `reset`, `fill`, `pend`. Manda indietro `state`, `peaks`, `done`. Ha annulla/ripeti per strato. Il codice della classe viene serializzato con `LoopCore.toString()` e caricato nel worklet: **non deve dipendere da nient'altro**.
+**LoopCore (`core.js`).** Classe autonoma, lavora in frame audio assoluti. Ogni loop è un buffer mono riprodotto all'indice `(F - t0) mod len`; l'uscita è stereo (`process(ins,out,F0,n,outR)`, senza `outR` resta mono come nei test) con pan per loop (legge di bilanciamento: al centro il livello non cambia) e un filtro SVF per loop sull'uscita (`fx` −1…1: passa-basso 20 kHz→150 Hz, passa-alto 20 Hz→6 kHz, zona morta al centro), smussati a ~30 ms. Riceve comandi via `port.postMessage`: `rec`, `recEnd`, `cancelRec`, `dub`, `undub`, `gate` (play/stop a un frame preciso), `vol`, `pan`, `fx`, `shift`, `clear`, `undo`, `redo`, `reset`, `fill`, `pend`. Manda indietro `state`, `peaks`, `done`. Ha annulla/ripeti per strato. Il codice della classe viene serializzato con `LoopCore.toString()` e caricato nel worklet: **non deve dipendere da nient'altro**.
 
 **Worklet da file locale.** Chrome rifiuta `addModule` con URL `blob:` quando la pagina è aperta da `file://`; si usa un URL `data:` e, se fallisce, `blob:`. Se l'AudioWorklet non parte, c'è il ripiego su ScriptProcessor con lo stesso LoopCore (più latenza).
 
@@ -80,12 +80,12 @@ Dettagli:
 
 ## Mappa dell'Axiom (fissa, letta dalla diagnostica dell'utente)
 
-L'Axiom deve stare in **modo MIDI**: tasto H finché i LED Volume/Pan/Inst-FX sono spenti. Tutto su canale 1.
+Due modi, scelti col pulsante dei modi accanto alle manopole (LED Volume → Pan → Inst/FX → tutti spenti = MIDI). In **modo MIDI** tutto arriva sul canale 1 con i numeri della tabella. Nei modi **HyperControl** (LED accesi) l'Axiom usa la porta HyperControl e il canale 16 con altri numeri (letti dallo script di Ableton `Axiom_AIR_Mini32`, non verificati sull'Axiom dell'utente): manopole CC 33–40, ■ ▶ ● CC 116 117 118, tasto centrale CC 98, frecce ◀ ▶ ▲ ▼ CC 99 100 101 102, pad note 81–84 (pad 1–4) e 85–88 (pad 5–8) su canale 15 (banco B sul 16); il pulsante dei modi manda CC 58 entrando in Volume o Pan (alterna), 59 in Inst/FX, 60 in MIDI. `onMIDI` traduce questi messaggi negli stessi comandi del modo MIDI.
 
 | Controllo | MIDI | Funzione |
 |---|---|---|
 | Pad 1–8 | note 36–43 | loop 1–8: vuoto → pronto; registra → chiudi; pieno → stop alla suddivisione / rientro sull'1 della battuta; tenuto 0,8 s → cancella |
-| Manopole 1–8 | CC 1–8 | volume dei loop 1–8 |
+| Manopole 1–8 | CC 1–8 (HyperControl: 33–40) | volume, pan o filtro dei loop 1–8 secondo `knobMode`: Volume/MIDI = volume, Pan = pan, Inst/FX = filtro (sinistra passa-basso, destra passa-alto, centro niente). Le manopole saltano al valore (niente soft takeover). Il modo si vede e si cambia anche dal pulsante MANOPOLE in alto o col tasto M |
 | ■ ▶ ● | CC 16 17 18 | stop alla fine del giro (ripremuto: subito; tenuto 2 s: cancella tutto, solo se il tasto manda anche il rilascio) · da fermo play da capo; mentre suona tocco = drop / rientro sull'1, tenuto = build-up col filtro (tenuto solo se il tasto manda il rilascio) · sovraincidi sul loop selezionato |
 | ◀ ▶ ▲ ▼ | CC 19 20 21 22 | annulla · ripeti · famiglia di suoni successiva · precedente (riprende l'ultimo suono usato in quella famiglia) |
 | Tasto centrale | CC 23 | suono successivo nella stessa famiglia |
@@ -97,14 +97,14 @@ Insidie note:
 - Il tasto Mod potrebbe mandare CC 1 come la manopola 1 (non verificato).
 - I layout dei pad a schermo seguono la disposizione fisica: 5–8 sopra, 1–4 sotto.
 
-Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `Maiusc+1–8` seleziona il loop senza fermarlo, `R` sovraincidi, `B` come ▶ mentre suona (drop / build-up), `Q` quantizzazione, spazio play/stop (tenuto 2 s: cancella tutto), Backspace annulla, frecce su/giù famiglia, sinistra/destra suono nella famiglia.
+Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `Maiusc+1–8` seleziona il loop senza fermarlo, `R` sovraincidi, `B` come ▶ mentre suona (drop / build-up), `Q` quantizzazione, `M` modo delle manopole (volume / pan / filtro), spazio play/stop (tenuto 2 s: cancella tutto), Backspace annulla, frecce su/giù famiglia, sinistra/destra suono nella famiglia.
 
 ## Test
 
-- `node tests/core_test.js` — test numerici del LoopCore (registrazione, code, compensazione, multipli, sovraincisione, annulla/ripeti, gate, cancella, shift, ripiegamento). Devono dare tutti OK.
+- `node tests/core_test.js` — test numerici del LoopCore (registrazione, code, compensazione, multipli, sovraincisione, annulla/ripeti, gate, cancella, shift, ripiegamento, uscita stereo, pan, filtro, reset che conserva volume/pan/filtro). Devono dare tutti OK.
 - `python tests/flow_test.py` — flusso reale in Chromium headless con Playwright: primo loop, secondo loop, sovraincisione, annulla, stop a tempo, cancella; controlla che non ci siano errori e scroll orizzontale a 420 px.
 - `python tests/quant_test.py` — suona note fuori griglia e verifica che nel loop finiscano sulla griglia; verifica la sovraincisione quantizzata.
-- `python tests/live_test.py` — comandi dal vivo: famiglie di suoni e tasto centrale, pitch bend che seleziona il loop, drop e build-up con ▶, rientro dei pad sull'1, battito visivo, ▶ ignorato mentre suona, ■ a fine giro, ■■ subito, ■ tenuto che cancella tutto (e pressione breve che non cancella).
+- `python tests/live_test.py` — comandi dal vivo: famiglie di suoni e tasto centrale, pitch bend che seleziona il loop, drop e build-up con ▶, rientro dei pad sull'1, modi delle manopole e messaggi HyperControl simulati (pulsante dei modi, manopole, tasto centrale, pad), battito visivo, ▶ ignorato mentre suona, ■ a fine giro, ■■ subito, ■ tenuto che cancella tutto (e pressione breve che non cancella).
 - `python tests/sounds_test.py` — caricamento dei 20 suoni, livelli misurati, registrazione con pianoforte e batteria.
 
 Nel container il Chromium di Playwright è già installato; avvialo con `--autoplay-policy=no-user-gesture-required`. Il MIDI reale non si può testare: risulta "non consentito" ed è normale.
