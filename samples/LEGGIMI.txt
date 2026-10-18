@@ -1,0 +1,1 @@
+Qui finiscono i campioni scaricati da tools/fetch_samples.py (non servono per il build: i dati sono già in src/sounds_data.js).

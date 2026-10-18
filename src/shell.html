@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Giro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: un looper e basta — barra (play · sovraincidi), suoni sempre in vista divisi per famiglia, una riga che dice cosa fare,
+   otto cerchi disposti come i pad dell'Axiom (5–8 sopra, 1–4 sotto) */
+:root{
+  --bg:#111418; --panel:#191e25; --panel2:#222932; --line:#2f3844;
+  --ink:#ece7db; --dim:#8a93a1; --faint:#4d5663; --sel:#7ea6f2;
+  --rec:#ef4b50; --play:#3fb950; --dub:#f0a323; --arm:#e2a43a;
+  --f-display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.4 var(--f-body);overflow-x:hidden;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+.app{max-width:1300px;margin:0 auto;height:100%;display:grid;grid-template-rows:auto auto auto 1fr auto auto;gap:10px}
+
+.top{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap}
+.brand{font:700 28px/1 var(--f-display);letter-spacing:.12em}
+.meta{display:flex;flex-direction:column;gap:2px;min-width:7.5em}
+#clock{font:500 20px/1 var(--f-mono);font-variant-numeric:tabular-nums;min-height:20px}
+#info{font:12px var(--f-mono);color:var(--dim)}
+.sound{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px}
+.sound button{width:38px;height:38px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);font-size:18px}
+.sound .nm{display:flex;flex-direction:column;align-items:center;min-width:9.5em;padding-inline:4px}
+#sName{font:700 21px/1.05 var(--f-display);letter-spacing:.04em}
+.sound small{font:11px var(--f-mono);color:var(--dim)}
+.acts{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.big{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:9px 14px;font:700 17px/1 var(--f-display);letter-spacing:.08em;white-space:nowrap}
+.big.on{border-color:var(--play);color:var(--play)}
+#dubBtn{color:var(--dub);border-color:color-mix(in srgb,var(--dub) 45%,var(--line))}
+#dubBtn.on{background:var(--dub);color:#1a1205}
+.small{background:none;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font:600 15px/1 var(--f-display);letter-spacing:.06em;color:var(--dim)}
+#qBtn.on{color:var(--sel);border-color:color-mix(in srgb,var(--sel) 55%,var(--line))}
+#midi{font:12px var(--f-mono);color:var(--rec);display:flex;align-items:center;gap:6px;white-space:nowrap}
+#midi::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+#midi.ok{color:var(--play)}
+
+.soundbar{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 12px;display:flex;flex-direction:column;gap:7px}
+.sbh{display:flex;align-items:baseline;gap:12px}
+.sbt{font:700 15px/1 var(--f-display);letter-spacing:.14em;text-transform:uppercase}
+.sbk{font:12px var(--f-body);color:var(--dim)}
+.sounds{display:flex;flex-wrap:wrap;gap:8px 16px}
+.cat{display:flex;flex-direction:column;gap:4px;min-width:0}
+.catn{font:600 11px/1 var(--f-display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.tiles{display:flex;gap:5px;flex-wrap:wrap}
+.snd{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 11px;font:600 16px/1 var(--f-display);letter-spacing:.03em;white-space:nowrap}
+.snd:hover{border-color:var(--dim)}
+.snd.on{background:var(--sel);border-color:var(--sel);color:#0d1420}
+.snd.wait{opacity:.5}
+.drumkeys{display:flex;gap:4px;flex-wrap:wrap}
+.dk{font:12px var(--f-body);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:4px 7px;display:flex;gap:5px}
+.dk.bk{background:#0b0d10}
+.dk b{font:600 11px var(--f-mono);color:var(--sel)}
+.hint{--hc:var(--faint);background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--hc);border-radius:9px;padding:10px 16px;min-height:50px;display:flex;align-items:center}
+.hint[data-c="rec"]{--hc:var(--rec)}.hint[data-c="arm"]{--hc:var(--arm)}.hint[data-c="dub"]{--hc:var(--dub)}.hint[data-c="play"]{--hc:var(--play)}.hint[data-c="sel"]{--hc:var(--sel)}
+#hint{font:500 clamp(15px,1.5vw,19px)/1.3 var(--f-body)}
+#hint b{font-weight:600}
+
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:10px;min-height:0}
+.loop{--c:var(--faint);position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px;display:flex;align-items:center;justify-content:center;min-height:0;min-width:0;touch-action:none;user-select:none;-webkit-user-select:none}
+.loop[data-c="play"]{--c:var(--play)}.loop[data-c="rec"]{--c:var(--rec)}.loop[data-c="dub"]{--c:var(--dub)}.loop[data-c="arm"]{--c:var(--arm)}.loop[data-c="off"]{--c:var(--dim)}
+.loop[data-c="rec"],.loop[data-c="dub"],.loop[data-c="arm"]{border-color:color-mix(in srgb,var(--c) 60%,var(--line));background:color-mix(in srgb,var(--c) 7%,var(--panel))}
+.loop.sel{box-shadow:0 0 0 2px var(--sel) inset}
+.loop.hit,.loop:active{background:color-mix(in srgb,var(--c) 22%,var(--panel))}
+.loop svg{height:100%;max-height:100%;max-width:100%;aspect-ratio:1;display:block}
+.rbg{fill:none;stroke:var(--line);stroke-width:5}
+.rprog{fill:none;stroke:var(--c);stroke-width:5;stroke-linecap:round;transform:rotate(-90deg);transform-origin:60px 60px}
+.wave{stroke:var(--c);stroke-width:1.6;stroke-linecap:round;opacity:.85}
+.loop[data-c="off"] .wave{opacity:.4}
+.num{fill:var(--ink);font:700 27px var(--f-display);text-anchor:middle;dominant-baseline:middle}
+.loop[data-c="empty"] .num{fill:var(--faint)}
+.snm{fill:var(--dim);font:500 6.5px var(--f-body);text-anchor:middle;dominant-baseline:middle}
+.st{fill:var(--c);font:700 7.5px var(--f-display);letter-spacing:.1em;text-anchor:middle;dominant-baseline:middle}
+.blink .st,.blink .rprog{animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.25}}
+.vol{position:absolute;left:14px;right:14px;bottom:8px;height:3px;background:var(--panel2);border-radius:2px;overflow:hidden}
+.vol i{display:block;height:100%;background:var(--c);opacity:.7}
+.loop[data-c="empty"] .vol{visibility:hidden}
+
+.keys{display:flex;height:6px;gap:1px}
+.keys i{flex:1;background:var(--panel2);border-radius:1px}
+.keys i.b{background:#0b0d10}
+.keys i.on{background:var(--sel)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 18px;font:12.5px var(--f-body);color:var(--dim)}
+.legend b{color:var(--ink);font-weight:600}
+.legend button{background:none;border:0;padding:0;color:var(--dim);text-decoration:underline;text-underline-offset:3px}
+
+@media (max-width:760px){
+ .grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:42vw}
+ .app{height:auto}
+ .acts{margin-left:0}
+}
+
+.overlay{position:fixed;inset:0;background:color-mix(in srgb,var(--bg) 90%,transparent);display:grid;place-items:center;z-index:20;padding:16px}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(640px,100%);max-height:100%;overflow:auto;padding:18px;display:flex;flex-direction:column;gap:16px}
+.sheet h2{margin:0;font:700 22px/1 var(--f-display);letter-spacing:.08em}
+.sheet h3{margin:0;font:700 14px/1 var(--f-display);letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+.sheet section{display:flex;flex-direction:column;gap:8px}
+.shead{display:flex;justify-content:space-between;align-items:center}
+.sl{display:grid;grid-template-columns:8em 1fr;gap:10px;align-items:center}
+.sl input{accent-color:var(--sel);min-width:0}
+.help{color:var(--dim);font-size:13px;margin:0}
+.help kbd{font:12px var(--f-mono);background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--ink)}
+.tbl{border-collapse:collapse;font-size:13px;width:100%}
+.tbl td{border-top:1px solid var(--line);padding:6px 4px;vertical-align:top}
+.tbl td:first-child{font:600 14px var(--f-display);letter-spacing:.06em;white-space:nowrap;width:9em}
+#diag{font:12px/1.5 var(--f-mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;max-height:150px;overflow:auto;white-space:pre;margin:0}
+#gate .box{max-width:440px;text-align:center;display:flex;flex-direction:column;gap:16px;align-items:center}
+#gate h1{margin:0;font:700 66px/1 var(--f-display);letter-spacing:.14em}
+#gate p{margin:0;color:var(--dim)}
+#startBtn{background:var(--play);color:#0c1a0f;border:0;border-radius:999px;padding:14px 32px;font:700 20px var(--f-display);letter-spacing:.12em}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div id="gate" class="overlay"><div class="box">
+  <h1>GIRO</h1>
+  <p>Looper per suonare con l'Axiom. Premi un tasto qualsiasi o clicca per accendere l'audio e caricare i suoni.</p>
+  <button id="startBtn">INIZIA</button>
+  <p class="help" id="gateMidi"></p>
+</div></div>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">GIRO</div>
+    <div class="meta"><span id="clock"></span><span id="info">giro libero</span></div>
+    <div class="acts">
+      <button class="big" id="playBtn">▶ PLAY</button>
+      <button class="big" id="dubBtn">● SOVRAINCIDI</button>
+      <button class="small" id="qBtn" title="Rimette a tempo le note registrate (Q sul PC)">QUANTIZZA 1/16</button>
+      <button class="small" id="undoBtn" title="Annulla l'ultimo strato (◀ sull'Axiom)">◀ ANNULLA</button>
+      <button class="small" id="redoBtn" title="Ripristina (▶ sull'Axiom)">RIPETI ▶</button>
+    </div>
+    <span id="midi">MIDI</span>
+    <button class="small" id="openSettings" aria-label="Impostazioni">⚙</button>
+  </header>
+
+  <section class="soundbar" aria-label="Suoni">
+    <div class="sbh"><span class="sbt">Suono</span><span class="sbk">▲ ▼ sull'Axiom · clic per ascoltare</span></div>
+    <div class="sounds" id="sounds"></div>
+    <div class="drumkeys" id="drumKeys" hidden></div>
+  </section>
+
+  <div class="hint" id="hintBox"><div id="hint"></div></div>
+
+  <main class="grid" id="grid"></main>
+
+  <div class="keys" id="keys" aria-hidden="true"></div>
+  <div class="legend">
+    <span><b>Pad</b> loop 1–8</span>
+    <span><b>Tieni premuto</b> cancella</span>
+    <span><b>●</b> sovraincidi</span>
+    <span><b>■ ▶</b> stop / play</span>
+    <span><b>◀ ▶</b> annulla / ripeti</span>
+        <span><b>Manopole 1–8</b> volume dei loop</span>
+  </div>
+</div>
+
+<div id="settings" class="overlay" hidden>
+  <div class="sheet">
+    <div class="shead"><h2>IMPOSTAZIONI</h2><button class="small" id="closeSettings">CHIUDI</button></div>
+    <section>
+      <h3>Suono</h3>
+      <div class="sl"><span>Filtro</span><input type="range" id="cut" min="0" max="1" step="0.001"></div>
+      <div class="sl"><span>Riverbero</span><input type="range" id="rev" min="0" max="1" step="0.001"></div>
+      <div class="sl"><span>Volume generale</span><input type="range" id="master" min="0" max="1" step="0.001"></div>
+    </section>
+    <section>
+      <h3>Tempismo</h3>
+      <div class="sl"><span>Latenza <b id="latVal">—</b></span><input type="range" id="lat" min="0" max="150" step="1"></div>
+      <p class="help">Se le sovraincisioni o i loop dopo il primo risultano in ritardo, alza questo valore; se risultano in anticipo, abbassalo. <button class="small" id="latAuto">AUTOMATICA</button></p>
+    </section>
+    <section>
+      <h3>Axiom</h3>
+      <table class="tbl">
+        <tr><td>Pad vuoto</td><td>Pronto: registra dalla prima nota. Ripremi per chiudere.</td></tr>
+        <tr><td>Pad pieno</td><td>Ferma o fa ripartire il loop, a tempo.</td></tr>
+        <tr><td>Pad tenuto</td><td>Cancella il loop (◀ lo riporta indietro).</td></tr>
+        <tr><td>● o tasto centrale</td><td>Sovraincidi sull'ultimo loop toccato; ripremi per smettere.</td></tr>
+        <tr><td>■</td><td>Ferma tutto. Da fermo, due volte: cancella tutto.</td></tr>
+        <tr><td>▶</td><td>Fa ripartire tutto dall'inizio.</td></tr>
+        <tr><td>◀ ▶ (frecce)</td><td>Annulla / ripristina l'ultimo strato.</td></tr>
+        <tr><td>▲ ▼</td><td>Cambia suono della tastiera.</td></tr>
+        <tr><td>Quantizza</td><td>Le note registrate vengono rimesse a tempo sulla griglia (1/16 o 1/8). Il primo loop decide il tempo: dura quanto vuoi, la griglia lo divide in parti uguali. Funziona con i suoni di Giro, non con un microfono.</td></tr>
+        <tr><td>Manopole 1–8</td><td>Volume dei loop 1–8.</td></tr>
+      </table>
+      <p class="help">L'Axiom deve stare in modo MIDI: premi <b>H</b> finché i LED Volume, Pan e Inst/FX sono spenti.</p>
+      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>Spazio</kbd> play/stop · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
+      <div><button class="small" id="diagStart">DIAGNOSTICA MIDI</button></div>
+      <pre id="diag">—</pre>
+    </section>
+  </div>
+</div>
+<!--SCRIPT-->
+</body>
+</html>

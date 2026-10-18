@@ -1,0 +1,8 @@
+samples/*
+!samples/LEGGIMI.txt
+tests/*.png
+__pycache__/
+# il file finale va nelle Release, non nel repo
+dist/
+# vecchia versione senza campioni
+/giro.html

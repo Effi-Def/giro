@@ -1,0 +1,115 @@
+# Giro
+
+Looper audio dal vivo nel browser, pensato per suonare con una **M-Audio Axiom AIR Mini 32**. Funziona come una Boss RC-50 / Loopy Pro: suoni sulla tastiera con strumenti campionati, i pad registrano e lanciano fino a 8 loop. È un unico file HTML (`dist/giro.html`, ~5,5 MB con i campioni dentro) che si apre in Chrome su Windows, senza installazione né internet.
+
+Rispondi sempre in italiano. L'interfaccia è in italiano.
+
+## Cosa vuole l'utente (requisiti emersi provando le versioni precedenti)
+
+- **È un looper, non una DAW.** Niente arrangiamento, timeline, scene, impostazioni in vista. Ogni funzione in più va giustificata; le versioni che hanno aggiunto funzioni "alla Ableton" sono state bocciate come complicate.
+- **Come la RC-50:** il primo loop ha lunghezza libera, la decide chi suona ripremendo il pad. Niente tempo o battute da impostare prima, niente pre-conteggio.
+- **La registrazione parte alla prima nota suonata**, non alla pressione del pad (il pad mette il loop in "pronto").
+- **Tutto dall'Axiom**, senza dover assegnare controlli: la mappa è fissa nel codice (vedi sotto).
+- **Suoni veri e facili da trovare:** i suoni sintetizzati sono stati giudicati pessimi. I suoni stanno sempre in vista, divisi per famiglia.
+- **Quantizzazione** delle note registrate, per non andare fuori tempo.
+- Intuitivo prima di tutto: una riga in alto dice sempre cosa fare adesso.
+
+## Struttura
+
+```
+src/shell.html       HTML + CSS; il segnaposto <!--SCRIPT--> viene sostituito dal build
+src/sounds_meta.js   elenco dei 14 suoni (generato da tools/build_sounds.py)
+src/sounds_data.js   campioni in base64 (generato, 5,3 MB: non aprirlo, non modificarlo a mano)
+src/sampler.js       caricamento campioni, voice() dal vivo, renderNote() per la quantizzazione, preview()
+src/core.js          LoopCore: motore del looper, gira dentro l'AudioWorklet
+src/app.js           audio graph, stato dei loop (G), azioni, quantizzazione, MIDI, tastiera del PC
+src/ui.js            interfaccia: griglia degli 8 loop, pannello suoni, suggerimenti, forme d'onda
+tools/build.py       assembla dist/giro.html — da lanciare dopo OGNI modifica a src/
+tools/fetch_samples.py, analyze_samples.py, build_sounds.py   pipeline dei campioni (in samples/)
+tests/               test (vedi sotto)
+```
+
+Dopo ogni modifica: `python tools/build.py`, poi i test.
+
+## Architettura
+
+**Audio.** I suoni dal vivo escono su 3 bus (`liveBus`) che vanno sia al master sia agli ingressi dell'AudioWorklet. I bus ruotano (`G.cur`) dopo ogni registrazione così le code delle note (tails) finiscono nel loop giusto. Uscita: `masterIn` → filtro → riverbero a convoluzione → compressore → `masterOut`.
+
+**LoopCore (`core.js`).** Classe autonoma, lavora in frame audio assoluti. Ogni loop è un buffer mono riprodotto all'indice `(F - t0) mod len`. Riceve comandi via `port.postMessage`: `rec`, `recEnd`, `cancelRec`, `dub`, `undub`, `gate` (play/stop a un frame preciso), `vol`, `shift`, `clear`, `undo`, `redo`, `reset`, `fill`, `pend`. Manda indietro `state`, `peaks`, `done`. Ha annulla/ripeti per strato. Il codice della classe viene serializzato con `LoopCore.toString()` e caricato nel worklet: **non deve dipendere da nient'altro**.
+
+**Worklet da file locale.** Chrome rifiuta `addModule` con URL `blob:` quando la pagina è aperta da `file://`; si usa un URL `data:` e, se fallisce, `blob:`. Se l'AudioWorklet non parte, c'è il ripiego su ScriptProcessor con lo stesso LoopCore (più latenza).
+
+**Stato (`app.js`, oggetto `G`).** `G.base` = lunghezza del primo loop in frame; `G.origin` = frame d'inizio della griglia; `G.beats` = battiti del giro base. Stati di un loop: `empty → armed → rec → (closing) → play ⇄ dub`, più `muted` e `pend` (stop/ripartenza in attesa).
+
+- Primo loop: lunghezza = da prima nota a ripressione. Il tempo si ricava supponendo 1/2/4/8… battiti con BPM tra 70 e 140 (`beatsFor`).
+- Loop successivi: lunghezza = multiplo intero più vicino di `G.base`; se ripremi prima, continua fino al confine (stato `closing`).
+- Stop/ripartenza dei loop pieni avvengono alla suddivisione successiva (`nextQ`).
+- Latenza: la registrazione dei loop successivi e le sovraincisioni sono compensate di `latencyFrames()` (automatica da `outputLatency + baseLatency`, regolabile nelle impostazioni).
+
+**Quantizzazione.** Il looper registra audio, quindi non si possono spostare le note dopo. Con la quantizzazione accesa (default 1/16; 1/8 o spenta):
+- le note dal vivo vanno direttamente a `masterIn` (si sentono subito, senza ritardo) e **non** entrano nel looper;
+- ogni nota viene annotata (`G.ev`: nota, velocity, suono, frame di on/off);
+- alla chiusura di una registrazione `renderRec` ricostruisce le note con `renderNote()` (stessa catena di `voice()`: campione, intonazione, inviluppo, loop interno) nella posizione quantizzata e le manda al core con `fill`;
+- in sovraincisione ogni nota, al rilascio, viene mandata con `pend` e diventa udibile solo quando la testina la raggiunge al giro dopo (così non si sente doppia).
+
+Si quantizza solo l'attacco, non la durata. La griglia è relativa a `G.origin` e divide `G.base` in `G.beats × suddivisione` parti. Limite noto: presume 4/4.
+
+## Suoni
+
+14 suoni, campionati, incorporati in `sounds_data.js`:
+- Tastiere: Pianoforte, Rhodes, Organo, Vibrafono
+- Chitarre: Acustica, Elettrica
+- Bassi: Basso elettrico, Contrabbasso, Synth bass (trasposti −12, così suonano già nel registro giusto)
+- Atmosfere: Archi, Pad, Coro
+- Batterie: Batteria (LinnDrum LM-2), Drum machine 808
+
+Fonti: soundfont **MusyngKite** da `raw.githubusercontent.com/gleitz/midi-js-soundfonts` (un campione ogni 3 semitoni) e batterie da `raw.githubusercontent.com/smpldsnds/drum-machines` (ogg Opus).
+
+Dettagli:
+- I campioni durano ~3,16 s. Organo, Archi, Pad e Coro (`loop:1`) ottengono un tratto ripetuto con dissolvenza incrociata tra 1,2 e 2,9 s (`makeLoop`), così durano finché tieni il tasto.
+- `gain` è normalizzato sull'RMS (`analyze_samples.py`) e corretto a orecchio con i moltiplicatori in `build_sounds.py`.
+- `off` salta il silenzio iniziale degli mp3: conta per il tempismo dei loop.
+- Batterie: stessa mappa in ogni ottava. Do cassa, Do# rim, Re rullante, Re# clap, Mi rullante 2, Fa tom basso, Fa# charleston, Sol tom medio, Sol# charleston corto, La tom alto, La# charleston aperto (chiuso dal charleston chiuso), Si piatto.
+- Per aggiungere o cambiare un suono: modifica `INST` in `fetch_samples.py` e la lista `S` in `build_sounds.py`, poi `fetch → analyze → build_sounds → build`.
+
+## Mappa dell'Axiom (fissa, letta dalla diagnostica dell'utente)
+
+L'Axiom deve stare in **modo MIDI**: tasto H finché i LED Volume/Pan/Inst-FX sono spenti. Tutto su canale 1.
+
+| Controllo | MIDI | Funzione |
+|---|---|---|
+| Pad 1–8 | note 36–43 | loop 1–8: vuoto → pronto; registra → chiudi; pieno → stop/ripartenza a tempo; tenuto 0,8 s → cancella |
+| Manopole 1–8 | CC 1–8 | volume dei loop 1–8 |
+| ■ ▶ ● | CC 16 17 18 | stop (da fermo, due volte = cancella tutto) · play da capo · sovraincidi sul loop selezionato |
+| ◀ ▶ ▲ ▼ | CC 19 20 21 22 | annulla · ripeti · suono successivo · suono precedente |
+| Tasto centrale | CC 23 | come ● |
+| Sustain | CC 64 | pedale |
+
+Insidie note:
+- I pad mandano le stesse note dei tasti sullo stesso canale: le note 36–43 sono sempre trattate come pad, anche se arrivano dalla tastiera abbassata di ottava.
+- Il tasto Mod potrebbe mandare CC 1 come la manopola 1 (non verificato).
+- I layout dei pad a schermo seguono la disposizione fisica: 5–8 sopra, 1–4 sotto.
+
+Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, `Q` quantizzazione, spazio play/stop, Backspace annulla, frecce su/giù suono.
+
+## Test
+
+- `node tests/core_test.js` — test numerici del LoopCore (registrazione, code, compensazione, multipli, sovraincisione, annulla/ripeti, gate, cancella, shift, ripiegamento). Devono dare tutti OK.
+- `python tests/flow_test.py` — flusso reale in Chromium headless con Playwright: primo loop, secondo loop, sovraincisione, annulla, stop a tempo, cancella; controlla che non ci siano errori e scroll orizzontale a 420 px.
+- `python tests/quant_test.py` — suona note fuori griglia e verifica che nel loop finiscano sulla griglia; verifica la sovraincisione quantizzata.
+- `python tests/sounds_test.py` — caricamento dei 14 suoni, livelli misurati, registrazione con pianoforte e batteria.
+
+Nel container il Chromium di Playwright è già installato; avvialo con `--autoplay-policy=no-user-gesture-required`. Il MIDI reale non si può testare: risulta "non consentito" ed è normale.
+
+## Vincoli
+
+- Deve restare **un solo file HTML** che funziona aperto da disco in Chrome. Web MIDI non funziona dentro gli artifact di claude.ai: non pubblicarlo come artifact.
+- Il PC dell'utente è un HP ProDesk 600 G1 mini (i5-4590T, 16 GB, Windows 10): niente elaborazioni pesanti in tempo reale.
+- Nessuna libreria esterna a runtime; i font Google sono l'unica risorsa di rete e hanno fallback.
+- Prima di aggiungere funzioni, chiedi: l'utente preferisce poche cose che funzionano bene.
+
+## Possibili prossimi passi (non ancora richiesti)
+
+- Salvare la sessione (i loop audio) in IndexedDB.
+- Campioni di qualità più alta per pianoforte e Rhodes (es. Splendid Grand Piano su smpldsnds).
+- Supporto a tempi dispari per la quantizzazione.
