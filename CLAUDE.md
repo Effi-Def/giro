@@ -52,6 +52,8 @@ Dopo ogni modifica: `python tools/build.py`, poi i test.
 - alla chiusura di una registrazione `renderRec` ricostruisce le note con `renderNote()` (stessa catena di `voice()`: campione, intonazione, inviluppo, loop interno) nella posizione quantizzata e le manda al core con `fill`;
 - in sovraincisione ogni nota, al rilascio, viene mandata con `pend` e diventa udibile solo quando la testina la raggiunge al giro dopo (così non si sente doppia).
 
+Il modo (suddivisione o spenta) si fissa in `L.q` quando parte la registrazione o la sovraincisione (●): cambiare Q a metà vale dalla ripresa successiva. Regola: una nota va su `masterIn` solo se è annotata in `G.ev`, altrimenti va su `liveBus[G.cur]`.
+
 Si quantizza solo l'attacco, non la durata. La griglia è relativa a `G.origin` e divide `G.base` in `G.beats × suddivisione` parti. Limite noto: presume 4/4.
 
 ## Suoni

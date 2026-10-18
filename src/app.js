@@ -59,8 +59,8 @@ function rotateBus(){G.cur=(G.cur+1)%3}
 const QNAMES={0:"NO",2:"1/8",4:"1/16"};
 function beatsFor(len){const secs=len/sr;let n=1;while(60*n/secs<70)n*=2;return n}
 const bpm=()=>G.base?60*G.beats/(G.base/sr):0;
-function gridF(){return G.base/(G.beats*SET.quant)}
-function qIndex(ev,L){const g=gridF(),rel=ev.on-ev.comp-G.origin,q=Math.round(rel/g)*g;
+function gridF(q){return G.base/(G.beats*q)}
+function qIndex(ev,L){const g=gridF(ev.q),rel=ev.on-ev.comp-G.origin,q=Math.round(rel/g)*g;
  return((Math.round(q+G.origin-L.t0)%L.len)+L.len)%L.len}
 function renderRec(i){const L=G.loops[i],evs=G.ev.filter(e=>e.i===i&&e.kind==="rec");G.ev=G.ev.filter(e=>!evs.includes(e));
  const data=new Float32Array(L.len),now=nowF();
@@ -72,7 +72,9 @@ function commitDubNote(e){e.done=true;G.ev=G.ev.filter(x=>x!==e);const L=G.loops
  const idx=qIndex(e,L);let at=L.t0+idx;const min=e.on+L.len*.5;
  if(at<min)at+=Math.ceil((min-at)/L.len)*L.len;
  send({type:"pend",i:e.i,start:idx,data:seg,at})}
-function cycleQuant(){SET.quant=SET.quant===4?2:SET.quant===2?0:4;saveSet();flashHint(SET.quant?`Quantizzazione: ${QNAMES[SET.quant]}. Le note registrate vengono rimesse a tempo.`:"Quantizzazione spenta: registro esattamente come suoni.")}
+function cycleQuant(){SET.quant=SET.quant===4?2:SET.quant===2?0:4;saveSet();
+ const busy=G.loops.some(L=>L.state==="rec"||L.state==="closing"||L.state==="dub")?" Vale dalla prossima registrazione.":"";
+ flashHint((SET.quant?`Quantizzazione: ${QNAMES[SET.quant]}. Le note registrate vengono rimesse a tempo.`:"Quantizzazione spenta: registro esattamente come suoni.")+busy)}
 
 function tap(i){
  if(!ready)return;const L=G.loops[i];G.sel=i;
@@ -94,7 +96,7 @@ function tap(i){
 function beginRec(i){const L=G.loops[i],f=nowF();
  if(L.first){G.running=false;send({type:"rec",i,bus:G.cur,start:f,comp:0})}
  else{if(!G.running)playAll(f);send({type:"rec",i,bus:G.cur,start:f,comp:latencyFrames()})}
- L.start=f;L.state="rec";L.sound=SET.sound;L.q=SET.quant>0;render()}
+ L.start=f;L.state="rec";L.sound=SET.sound;L.q=SET.quant;render()}
 
 function close(i){const L=G.loops[i],f=nowF();
  if(L.first){const len=f-L.start;
@@ -109,7 +111,7 @@ function close(i){const L=G.loops[i],f=nowF();
 
 function startDub(i){const L=G.loops[i];if(!G.running)playAll();
  if(L.muted){L.muted=false;L.pend=null;send({type:"gate",i,on:1,frame:nowF()})}
- send({type:"dub",i,bus:G.cur,comp:latencyFrames()});L.state="dub";render()}
+ send({type:"dub",i,bus:G.cur,comp:latencyFrames()});L.state="dub";L.q=SET.quant;render()}
 function endDub(i){send({type:"undub",i});G.loops[i].state="play";rotateBus();render()}
 
 function clearLoop(i){const L=G.loops[i];
@@ -167,13 +169,13 @@ const held=new Map();
 function noteOn(note,vel){if(!ready)return;
  if(held.has(note))noteOff(note,true);
  const a=G.loops.findIndex(L=>L.state==="armed");if(a>=0)beginRec(a);
- const ti=G.loops.findIndex(L=>(L.state==="rec"||L.state==="closing")&&L.q),di=G.loops.findIndex(L=>L.state==="dub"&&L.q);
- const quant=SET.quant>0&&!!BUF[SOUNDS[SET.sound].id];
+ const ti=G.loops.findIndex(L=>L.state==="rec"||L.state==="closing"),di=G.loops.findIndex(L=>L.state==="dub"),i=ti>=0?ti:di;
+ // il modo (suddivisione, 0 = spenta) lo decide L.q, fissato quando parte la registrazione o la sovraincisione
  let ev=null;
- if(quant&&(ti>=0||di>=0)){const i=ti>=0?ti:di,L=G.loops[i];
-  ev={i,kind:ti>=0?"rec":"dub",note,vel,sound:SET.sound,on:nowF(),off:null,comp:L.first&&ti>=0?0:latencyFrames()};G.ev.push(ev)}
- // con la quantizzazione il suono dal vivo non va al looper: nel loop entra la versione a tempo
- held.set(note,{v:voice(SET.sound,note,vel,ctx.currentTime,quant?masterIn:liveBus[G.cur]),sus:false,ev});uiNote(note,true)}
+ if(i>=0&&G.loops[i].q&&BUF[SOUNDS[SET.sound].id]){const L=G.loops[i];
+  ev={i,kind:ti>=0?"rec":"dub",note,vel,sound:SET.sound,q:L.q,on:nowF(),off:null,comp:L.first&&ti>=0?0:latencyFrames()};G.ev.push(ev)}
+ // nota annotata: il suono dal vivo non va al looper, nel loop entra la versione a tempo; altrimenti va sul bus registrato
+ held.set(note,{v:voice(SET.sound,note,vel,ctx.currentTime,ev?masterIn:liveBus[G.cur]),sus:false,ev});uiNote(note,true)}
 let sustain=false;
 function noteOff(note,force){const h=held.get(note);if(!h)return;if(sustain&&!force){h.sus=true;return}
  h.v.release(ctx.currentTime);held.delete(note);uiNote(note,false);
