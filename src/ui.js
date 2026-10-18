@@ -6,6 +6,7 @@ const START_HINT="Premi un pad e suona: il primo loop parte dalla prima nota. Ri
 
 function loopLabel(i){const L=G.loops[i];
  if(L.pend)return L.pend.muted?"SI FERMA…":"RIPARTE…";
+ if(L.dropped&&G.running)return"DROP";
  switch(L.state){case "empty":return"";case "armed":return"SUONA";case "rec":return"REC";case "closing":return"CHIUDE…";
   case "dub":return"SOVRAINCIDI";case "play":return !G.running?"PRONTO":(L.muted?"FERMO":"")}}
 function loopColor(i){const L=G.loops[i];
@@ -39,6 +40,8 @@ function build(){
  pb.addEventListener("pointerdown",e=>{e.preventDefault();pbAct()});
  ["pointerup","pointerleave","pointercancel"].forEach(ev=>pb.addEventListener(ev,stopRelease));
  pb.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();(G.running?stopButton:playButton)()}});
+ const db=$("#dropBtn");db.addEventListener("pointerdown",e=>{e.preventDefault();playDown(true)});
+ ["pointerup","pointerleave","pointercancel"].forEach(ev=>db.addEventListener(ev,playUp));
  $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
  $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
@@ -59,13 +62,15 @@ function hint(){
  const n=s=>G.loops.findIndex(L=>L.state===s);
  let i;
  if(G.stopAt)return["<b>Mi fermo alla fine del giro.</b> ■ di nuovo: subito.","rec"];
+ if(building)return["<b>Build-up:</b> il suono si chiude… lascia <b>▶</b> e tutto si riapre sull'1.","dub"];
+ if(G.drop)return[`<b>DROP:</b> resta il loop ${G.sel+1}. Tocca <b>▶</b>: tutto rientra sull'1 · tieni premuto <b>▶</b>: build-up.`,"dub"];
  if((i=n("armed"))>=0)return[`<b>Loop ${i+1} pronto.</b> Suona: registra dalla prima nota.`,"arm"];
  if((i=n("rec"))>=0)return G.loops[i].first?[`<b>Registro il primo loop.</b> Ripremi il pad ${i+1} nel punto esatto in cui deve ricominciare.`,"rec"]:[`<b>Registro il loop ${i+1}.</b> Ripremi il pad ${i+1} quando hai finito: la lunghezza si aggancia da sola.`,"rec"];
  if((i=n("closing"))>=0)return[`<b>Loop ${i+1}:</b> chiudo alla fine del giro, continua a suonare.`,"rec"];
  if((i=n("dub"))>=0)return[`<b>Sovraincisione sul loop ${i+1}.</b> Suona sopra, premi ● per smettere.`,"dub"];
  if(!anyHas())return[START_HINT,"off"];
  if(!G.running)return["Fermo. <b>▶</b> per ripartire · tieni premuto <b>■</b> per cancellare tutto.","off"];
- return["Pad vuoto: nuovo loop · pad pieno: ferma / riparti · <b>●</b> sovraincidi sull'ultimo toccato · <b>■</b> fine a tempo · tieni premuto un pad: cancella.","play"]}
+ return["Pad: nuovo loop · ferma / riparti sull'1 · <b>●</b> sovraincidi (pitch bend sceglie il loop) · <b>▶</b> drop, tenuto build-up · <b>■</b> fine a tempo.","play"]}
 
 function render(){
  $$(".loop").forEach(b=>{const i=+b.dataset.loop,L=G.loops[i];
@@ -77,6 +82,7 @@ function render(){
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||""):""});
  $("#playBtn").textContent=G.stopAt?"■ SUBITO":G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
+ $("#dropBtn").hidden=!G.running;$("#dropBtn").textContent=G.drop?"▶ RIENTRA":"▶ DROP";$("#dropBtn").classList.toggle("on",G.drop||building);
  $("#dubBtn").textContent=G.loops[G.sel].state==="dub"?`● FINE (loop ${G.sel+1})`:`● SOVRAINCIDI ${G.sel+1}`;
  $("#dubBtn").classList.toggle("on",G.loops[G.sel].state==="dub");
  $("#info").textContent=G.base?`${Math.round(bpm())} bpm · ${G.beats/4>=1?G.beats/4+" batt.":G.beats+" mov."}`:"giro libero";

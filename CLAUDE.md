@@ -44,6 +44,7 @@ Dopo ogni modifica: `python tools/build.py`, poi i test.
 - Primo loop: lunghezza = da prima nota a ripressione. Il tempo si ricava supponendo 1/2/4/8… battiti con BPM tra 70 e 140 (`beatsFor`).
 - Loop successivi: lunghezza = multiplo intero più vicino di `G.base`; se ripremi prima, continua fino al confine (stato `closing`).
 - Stop/ripartenza dei loop pieni avvengono alla suddivisione successiva (`nextQ`).
+- Drop (`dropToggle`): al prossimo 1 della battuta (`nextBar`, battuta = `G.base` se il giro ha meno di 4 battiti) ferma con `pend`/`gate` tutti i loop pieni che suonano tranne quello selezionato e li segna `dropped`; il secondo tocco li fa rientrare sul prossimo 1. Build-up (`buildStart`/`buildEnd`): rampa esponenziale del filtro di `cutF` verso 300 Hz con risonanza fino a 8 in 2 battute (2–8 s); al rilascio filtro e Q tornano di colpo al valore delle impostazioni sul prossimo 1 e finisce il drop. `stopAll`/`clearAll` annullano drop e build-up.
 - ■ a loop avviati imposta `G.stopAt` al prossimo confine del giro base e manda subito al core `gate` off (e `undub`) con quel frame, così lo stop è preciso; `tick` poi chiama `stopAll`. In alto un battito grande (1–4, l'1 evidenziato) segue il movimento che si sente, tolto il ritardo d'uscita.
 - Latenza: i suoni sono tutti interni e note e loop escono con lo stesso ritardo, quindi la compensazione automatica (`latencyFrames()`) è 0 con l'AudioWorklet (1024 frame col ripiego ScriptProcessor). Compensare `outputLatency + baseLatency` spostava le note in anticipo (66 ms su questo PC, più di mezzo sedicesimo a 120 bpm). Nelle impostazioni si vede solo il ritardo audio reale (`audioDelayMs`), senza niente da regolare.
 
@@ -83,11 +84,12 @@ L'Axiom deve stare in **modo MIDI**: tasto H finché i LED Volume/Pan/Inst-FX so
 
 | Controllo | MIDI | Funzione |
 |---|---|---|
-| Pad 1–8 | note 36–43 | loop 1–8: vuoto → pronto; registra → chiudi; pieno → stop/ripartenza a tempo; tenuto 0,8 s → cancella |
+| Pad 1–8 | note 36–43 | loop 1–8: vuoto → pronto; registra → chiudi; pieno → stop alla suddivisione / rientro sull'1 della battuta; tenuto 0,8 s → cancella |
 | Manopole 1–8 | CC 1–8 | volume dei loop 1–8 |
-| ■ ▶ ● | CC 16 17 18 | stop alla fine del giro (ripremuto: subito; tenuto 2 s: cancella tutto, solo se il tasto manda anche il rilascio) · play da capo, solo da fermo · sovraincidi sul loop selezionato |
+| ■ ▶ ● | CC 16 17 18 | stop alla fine del giro (ripremuto: subito; tenuto 2 s: cancella tutto, solo se il tasto manda anche il rilascio) · da fermo play da capo; mentre suona tocco = drop / rientro sull'1, tenuto = build-up col filtro (tenuto solo se il tasto manda il rilascio) · sovraincidi sul loop selezionato |
 | ◀ ▶ ▲ ▼ | CC 19 20 21 22 | annulla · ripeti · famiglia di suoni successiva · precedente (riprende l'ultimo suono usato in quella famiglia) |
 | Tasto centrale | CC 23 | suono successivo nella stessa famiglia |
+| Pitch bend | 0xE0 | su / giù: seleziona il loop pieno successivo / precedente senza fermarlo (scatta una volta per spinta, si riarma al centro; non verificato sull'Axiom) |
 | Sustain | CC 64 | pedale |
 
 Insidie note:
@@ -95,14 +97,14 @@ Insidie note:
 - Il tasto Mod potrebbe mandare CC 1 come la manopola 1 (non verificato).
 - I layout dei pad a schermo seguono la disposizione fisica: 5–8 sopra, 1–4 sotto.
 
-Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, `Q` quantizzazione, spazio play/stop (tenuto 2 s: cancella tutto), Backspace annulla, frecce su/giù famiglia, sinistra/destra suono nella famiglia.
+Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `Maiusc+1–8` seleziona il loop senza fermarlo, `R` sovraincidi, `B` come ▶ mentre suona (drop / build-up), `Q` quantizzazione, spazio play/stop (tenuto 2 s: cancella tutto), Backspace annulla, frecce su/giù famiglia, sinistra/destra suono nella famiglia.
 
 ## Test
 
 - `node tests/core_test.js` — test numerici del LoopCore (registrazione, code, compensazione, multipli, sovraincisione, annulla/ripeti, gate, cancella, shift, ripiegamento). Devono dare tutti OK.
 - `python tests/flow_test.py` — flusso reale in Chromium headless con Playwright: primo loop, secondo loop, sovraincisione, annulla, stop a tempo, cancella; controlla che non ci siano errori e scroll orizzontale a 420 px.
 - `python tests/quant_test.py` — suona note fuori griglia e verifica che nel loop finiscano sulla griglia; verifica la sovraincisione quantizzata.
-- `python tests/live_test.py` — comandi dal vivo: famiglie di suoni e tasto centrale, battito visivo, ▶ ignorato mentre suona, ■ a fine giro, ■■ subito, ■ tenuto che cancella tutto (e pressione breve che non cancella).
+- `python tests/live_test.py` — comandi dal vivo: famiglie di suoni e tasto centrale, pitch bend che seleziona il loop, drop e build-up con ▶, rientro dei pad sull'1, battito visivo, ▶ ignorato mentre suona, ■ a fine giro, ■■ subito, ■ tenuto che cancella tutto (e pressione breve che non cancella).
 - `python tests/sounds_test.py` — caricamento dei 20 suoni, livelli misurati, registrazione con pianoforte e batteria.
 
 Nel container il Chromium di Playwright è già installato; avvialo con `--autoplay-policy=no-user-gesture-required`. Il MIDI reale non si può testare: risulta "non consentito" ed è normale.
