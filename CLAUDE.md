@@ -44,7 +44,7 @@ Dopo ogni modifica: `python tools/build.py`, poi i test.
 - Primo loop: lunghezza = da prima nota a ripressione. Il tempo si ricava supponendo 1/2/4/8… battiti con BPM tra 70 e 140 (`beatsFor`).
 - Loop successivi: lunghezza = multiplo intero più vicino di `G.base`; se ripremi prima, continua fino al confine (stato `closing`).
 - Stop/ripartenza dei loop pieni avvengono alla suddivisione successiva (`nextQ`).
-- Latenza: la registrazione dei loop successivi e le sovraincisioni sono compensate di `latencyFrames()` (automatica da `outputLatency + baseLatency`, regolabile nelle impostazioni).
+- Latenza: i suoni sono tutti interni e note e loop escono con lo stesso ritardo, quindi la compensazione automatica (`latencyFrames()`) è 0 con l'AudioWorklet (1024 frame col ripiego ScriptProcessor). Compensare `outputLatency + baseLatency` spostava le note in anticipo (66 ms su questo PC, più di mezzo sedicesimo a 120 bpm). Resta regolabile a mano nelle impostazioni.
 
 **Quantizzazione.** Il looper registra audio, quindi non si possono spostare le note dopo. Con la quantizzazione accesa (default 1/16; 1/8 o spenta):
 - le note dal vivo vanno direttamente a `masterIn` (si sentono subito, senza ritardo) e **non** entrano nel looper;

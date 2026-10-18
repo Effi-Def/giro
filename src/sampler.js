@@ -42,7 +42,7 @@ function voice(i,note,vel,when,bus){
   amp.gain.setTargetAtTime(0,t,(s.rel||.2)/3);src.stop(t+(s.rel||.2)*2.5+.05)}}}
 
 // ascolto di prova quando scegli un suono: non entra mai nei loop
-function preview(i){if(!ready||G.loops.some(L=>L.state==="armed"||L.state==="rec"||L.state==="dub"))return;
+function preview(i){if(!ready||G.loops.some(L=>L.state==="armed"||L.state==="rec"||L.state==="closing"||L.state==="dub"))return;
  loadSound(i).then(()=>{const s=SOUNDS[i],t=ctx.currentTime+.01;
   if(s.drum){[0,6,2,6].forEach((k,j)=>voice(i,60+k,.7,t+j*.18,masterIn))}
   else{const base=s.tr?48:60;[0,4,7].forEach(k=>voice(i,base+k,.55,t,masterIn).release(t+.7))}})}

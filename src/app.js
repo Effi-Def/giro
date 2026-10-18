@@ -42,7 +42,9 @@ function send(c){if(!ready)return;if(usingWorklet)node.port.postMessage(c);else 
 function applyMix(){if(!ctx)return;const t=ctx.currentTime;
  cutF.frequency.setTargetAtTime(200*Math.pow(100,SET.cut),t,.02);wet.gain.setTargetAtTime(SET.rev*.5,t,.02);masterOut.gain.setTargetAtTime(SET.master,t,.02)}
 const nowF=()=>Math.round(ctx.currentTime*sr);
-function latencyFrames(){const auto=((ctx.outputLatency||0)+(ctx.baseLatency||0))*1000+(usingWorklet?0:1024/sr*1000);
+// i suoni sono tutti interni: le note e i loop escono con lo stesso ritardo e chi suona si allinea a orecchio,
+// quindi la latenza d'uscita non va compensata (spostava le note in anticipo). Resta solo il buffer dello ScriptProcessor.
+function latencyFrames(){const auto=usingWorklet?0:1024/sr*1000;
  return Math.round(((SET.latMs??auto))/1000*sr)}
 
 // ---------- Stato del looper ----------
@@ -181,7 +183,7 @@ function noteOff(note,force){const h=held.get(note);if(!h)return;if(sustain&&!fo
  h.v.release(ctx.currentTime);held.delete(note);uiNote(note,false);
  if(h.ev&&!h.ev.done){h.ev.off=nowF();if(h.ev.kind==="dub")commitDubNote(h.ev)}}
 function setSustain(on){sustain=on;if(!on)[...held.entries()].filter(([,h])=>h.sus).forEach(([n])=>noteOff(n,true))}
-function setSound(i){if(i===SET.sound)return;SET.sound=i;saveSet();if(ready){loadSound(i);preview(i)}render()}
+function setSound(i){if(i===SET.sound)return;SET.sound=i;saveSet();if(ready){loadSound(i);if(!G.running)preview(i)}render()}
 function stepSound(d){setSound((SET.sound+d+SOUNDS.length)%SOUNDS.length)}
 
 // ---------- Pad: tocco = azione, tenuto premuto = cancella ----------
