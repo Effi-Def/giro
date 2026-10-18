@@ -44,7 +44,8 @@ Dopo ogni modifica: `python tools/build.py`, poi i test.
 - Primo loop: lunghezza = da prima nota a ripressione. Il tempo si ricava supponendo 1/2/4/8… battiti con BPM tra 70 e 140 (`beatsFor`).
 - Loop successivi: lunghezza = multiplo intero più vicino di `G.base`; se ripremi prima, continua fino al confine (stato `closing`).
 - Stop/ripartenza dei loop pieni avvengono alla suddivisione successiva (`nextQ`).
-- Latenza: i suoni sono tutti interni e note e loop escono con lo stesso ritardo, quindi la compensazione automatica (`latencyFrames()`) è 0 con l'AudioWorklet (1024 frame col ripiego ScriptProcessor). Compensare `outputLatency + baseLatency` spostava le note in anticipo (66 ms su questo PC, più di mezzo sedicesimo a 120 bpm). Resta regolabile a mano nelle impostazioni.
+- ■ a loop avviati imposta `G.stopAt` al prossimo confine del giro base e manda subito al core `gate` off (e `undub`) con quel frame, così lo stop è preciso; `tick` poi chiama `stopAll`. In alto un battito grande (1–4, l'1 evidenziato) segue il movimento che si sente, tolto il ritardo d'uscita.
+- Latenza: i suoni sono tutti interni e note e loop escono con lo stesso ritardo, quindi la compensazione automatica (`latencyFrames()`) è 0 con l'AudioWorklet (1024 frame col ripiego ScriptProcessor). Compensare `outputLatency + baseLatency` spostava le note in anticipo (66 ms su questo PC, più di mezzo sedicesimo a 120 bpm). Nelle impostazioni si vede solo il ritardo audio reale (`audioDelayMs`), senza niente da regolare.
 
 **Quantizzazione.** Il looper registra audio, quindi non si possono spostare le note dopo. Con la quantizzazione accesa (default 1/16; 1/8 o spenta):
 - le note dal vivo vanno direttamente a `masterIn` (si sentono subito, senza ritardo) e **non** entrano nel looper;
@@ -84,9 +85,9 @@ L'Axiom deve stare in **modo MIDI**: tasto H finché i LED Volume/Pan/Inst-FX so
 |---|---|---|
 | Pad 1–8 | note 36–43 | loop 1–8: vuoto → pronto; registra → chiudi; pieno → stop/ripartenza a tempo; tenuto 0,8 s → cancella |
 | Manopole 1–8 | CC 1–8 | volume dei loop 1–8 |
-| ■ ▶ ● | CC 16 17 18 | stop (da fermo, due volte = cancella tutto) · play da capo · sovraincidi sul loop selezionato |
-| ◀ ▶ ▲ ▼ | CC 19 20 21 22 | annulla · ripeti · suono successivo · suono precedente |
-| Tasto centrale | CC 23 | come ● |
+| ■ ▶ ● | CC 16 17 18 | stop alla fine del giro (ripremuto: subito; tenuto 2 s: cancella tutto, solo se il tasto manda anche il rilascio) · play da capo, solo da fermo · sovraincidi sul loop selezionato |
+| ◀ ▶ ▲ ▼ | CC 19 20 21 22 | annulla · ripeti · famiglia di suoni successiva · precedente (riprende l'ultimo suono usato in quella famiglia) |
+| Tasto centrale | CC 23 | suono successivo nella stessa famiglia |
 | Sustain | CC 64 | pedale |
 
 Insidie note:
@@ -94,13 +95,14 @@ Insidie note:
 - Il tasto Mod potrebbe mandare CC 1 come la manopola 1 (non verificato).
 - I layout dei pad a schermo seguono la disposizione fisica: 5–8 sopra, 1–4 sotto.
 
-Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, `Q` quantizzazione, spazio play/stop, Backspace annulla, frecce su/giù suono.
+Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, `Q` quantizzazione, spazio play/stop (tenuto 2 s: cancella tutto), Backspace annulla, frecce su/giù famiglia, sinistra/destra suono nella famiglia.
 
 ## Test
 
 - `node tests/core_test.js` — test numerici del LoopCore (registrazione, code, compensazione, multipli, sovraincisione, annulla/ripeti, gate, cancella, shift, ripiegamento). Devono dare tutti OK.
 - `python tests/flow_test.py` — flusso reale in Chromium headless con Playwright: primo loop, secondo loop, sovraincisione, annulla, stop a tempo, cancella; controlla che non ci siano errori e scroll orizzontale a 420 px.
 - `python tests/quant_test.py` — suona note fuori griglia e verifica che nel loop finiscano sulla griglia; verifica la sovraincisione quantizzata.
+- `python tests/live_test.py` — comandi dal vivo: famiglie di suoni e tasto centrale, battito visivo, ▶ ignorato mentre suona, ■ a fine giro, ■■ subito, ■ tenuto che cancella tutto (e pressione breve che non cancella).
 - `python tests/sounds_test.py` — caricamento dei 20 suoni, livelli misurati, registrazione con pianoforte e batteria.
 
 Nel container il Chromium di Playwright è già installato; avvialo con `--autoplay-policy=no-user-gesture-required`. Il MIDI reale non si può testare: risulta "non consentito" ed è normale.

@@ -35,22 +35,22 @@ function build(){
   SOUNDS.map((s,i)=>s.cat===c?`<button class="snd" data-s="${i}">${s.name}</button>`:"").join("")}</div></div>`).join("");
  $$(".snd").forEach(b=>b.onclick=()=>setSound(+b.dataset.s));
  $("#drumKeys").innerHTML=DRUM_KEYS.map((n,k)=>`<span class="dk ${[1,3,6,8,10].includes(k)?"bk":""}"><b>${["Do","Do#","Re","Re#","Mi","Fa","Fa#","Sol","Sol#","La","La#","Si"][k]}</b>${n}</span>`).join("");
- $("#playBtn").onclick=()=>G.running?stopButton():playButton();
+ const pb=$("#playBtn"),pbAct=()=>{(G.running?stopButton:playButton)();stopPress()};
+ pb.addEventListener("pointerdown",e=>{e.preventDefault();pbAct()});
+ ["pointerup","pointerleave","pointercancel"].forEach(ev=>pb.addEventListener(ev,stopRelease));
+ pb.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();(G.running?stopButton:playButton)()}});
  $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
- $("#openSettings").onclick=()=>{$("#settings").hidden=false};$("#closeSettings").onclick=closeSettings;
+ $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
  [["#cut","cut"],["#rev","rev"],["#master","master"]].forEach(([s,k])=>{$(s).value=SET[k];$(s).oninput=e=>{SET[k]=+e.target.value;applyMix();saveSet()}});
- $("#lat").oninput=e=>{SET.latMs=+e.target.value;saveSet();showLat()};
- $("#latAuto").onclick=()=>{SET.latMs=null;saveSet();showLat()};
  $("#diagStart").onclick=()=>{diagOn=true;diagLines.clear();$("#diag").textContent="In ascolto: tocca i controlli dell'Axiom…"};
  $("#startBtn").onclick=start;
 }
 function closeSettings(){$("#settings").hidden=true}
-function showLat(){if(!ctx){$("#latVal").textContent="—";return}const ms=latencyFrames()/sr*1000;
- $("#lat").value=Math.round(ms);$("#latVal").textContent=`${Math.round(ms)} ms${SET.latMs==null?" (automatica)":""}`}
+function showDelay(){$("#delayVal").textContent=ctx?`${Math.round(audioDelayMs())} ms`:"—"}
 async function start(){if($("#gate").hidden)return;$("#gate").hidden=true;
  try{await initAudio();await ctx.resume()}catch(err){flashHint("L'audio non è partito: "+err.message)}
- showLat();render()}
+ render()}
 
 let hintOverride="",hintTimer=0;
 function flashHint(t){hintOverride=t;clearTimeout(hintTimer);hintTimer=setTimeout(()=>{hintOverride="";render()},2600);render()}
@@ -58,13 +58,14 @@ function hint(){
  if(hintOverride)return[hintOverride,"sel"];
  const n=s=>G.loops.findIndex(L=>L.state===s);
  let i;
+ if(G.stopAt)return["<b>Mi fermo alla fine del giro.</b> ■ di nuovo: subito.","rec"];
  if((i=n("armed"))>=0)return[`<b>Loop ${i+1} pronto.</b> Suona: registra dalla prima nota.`,"arm"];
  if((i=n("rec"))>=0)return G.loops[i].first?[`<b>Registro il primo loop.</b> Ripremi il pad ${i+1} nel punto esatto in cui deve ricominciare.`,"rec"]:[`<b>Registro il loop ${i+1}.</b> Ripremi il pad ${i+1} quando hai finito: la lunghezza si aggancia da sola.`,"rec"];
  if((i=n("closing"))>=0)return[`<b>Loop ${i+1}:</b> chiudo alla fine del giro, continua a suonare.`,"rec"];
  if((i=n("dub"))>=0)return[`<b>Sovraincisione sul loop ${i+1}.</b> Suona sopra, premi ● per smettere.`,"dub"];
  if(!anyHas())return[START_HINT,"off"];
- if(!G.running)return["Fermo. <b>▶</b> per ripartire · <b>■</b> due volte per cancellare tutto.","off"];
- return["Pad vuoto: nuovo loop · pad pieno: ferma / riparti · <b>●</b> sovraincidi sull'ultimo toccato · tieni premuto un pad: cancella.","play"]}
+ if(!G.running)return["Fermo. <b>▶</b> per ripartire · tieni premuto <b>■</b> per cancellare tutto.","off"];
+ return["Pad vuoto: nuovo loop · pad pieno: ferma / riparti · <b>●</b> sovraincidi sull'ultimo toccato · <b>■</b> fine a tempo · tieni premuto un pad: cancella.","play"]}
 
 function render(){
  $$(".loop").forEach(b=>{const i=+b.dataset.loop,L=G.loops[i];
@@ -75,7 +76,7 @@ function render(){
  $$(".snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||""):""});
- $("#playBtn").textContent=G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
+ $("#playBtn").textContent=G.stopAt?"■ SUBITO":G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
  $("#dubBtn").textContent=G.loops[G.sel].state==="dub"?`● FINE (loop ${G.sel+1})`:`● SOVRAINCIDI ${G.sel+1}`;
  $("#dubBtn").classList.toggle("on",G.loops[G.sel].state==="dub");
  $("#info").textContent=G.base?`${Math.round(bpm())} bpm · ${G.beats/4>=1?G.beats/4+" batt.":G.beats+" mov."}`:"giro libero";
@@ -97,8 +98,17 @@ function frame(){
    else if(L.has&&G.running&&!L.muted&&L.len)fr=(((f-L.t0)%L.len)+L.len)%L.len/L.len;
    r.style.strokeDashoffset=RC*(1-Math.max(0,Math.min(1,fr)))});
   const rec=G.loops.find(L=>L.state==="rec"&&L.first);
-  $("#clock").textContent=rec?((f-rec.start)/sr).toFixed(1)+" s":""}
+  $("#clock").textContent=rec?((f-rec.start)/sr).toFixed(1)+" s":"";
+  beat(f)}
  requestAnimationFrame(frame)}
+// battito grande: quale movimento della battuta si sta sentendo (tolto il ritardo d'uscita), l'1 è evidenziato
+let beatShown="";
+function beat(f){const el=$("#beat");const n=G.base?Math.min(4,G.beats):0;let k=-1;
+ if(n&&G.running){const len=G.base/G.beats,rel=f-audioDelayMs()/1000*sr-G.origin;k=((Math.floor(rel/len)%n)+n)%n}
+ const key=n+":"+k;if(key===beatShown)return;beatShown=key;
+ el.hidden=!n;if(!n)return;
+ if(el.children.length!==n)el.innerHTML=Array.from({length:n},(_,j)=>`<i>${j+1}</i>`).join("");
+ [...el.children].forEach((x,j)=>x.classList.toggle("on",j===k))}
 function flash(sel){$$(sel).forEach(el=>{el.classList.add("hit");clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove("hit"),140)})}
 function uiNote(n,on){const k=$(`#keys i[data-k="${n}"]`);if(k)k.classList.toggle("on",on)}
 function setMidi(ok,txt){const m=$("#midi");m.textContent=txt;m.classList.toggle("ok",ok);$("#gateMidi").textContent=ok?`Tastiera collegata: ${txt}`:txt}

@@ -32,6 +32,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 .meta{display:flex;flex-direction:column;gap:2px;min-width:7.5em}
 #clock{font:500 20px/1 var(--f-mono);font-variant-numeric:tabular-nums;min-height:20px}
 #info{font:12px var(--f-mono);color:var(--dim)}
+.beat{display:flex;gap:6px}
+.beat i{width:40px;height:40px;border-radius:9px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;
+  font:700 22px/1 var(--f-display);font-style:normal;color:var(--faint)}
+.beat i.on{background:var(--play);border-color:var(--play);color:#08130a}
+.beat i:first-child.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
 .sound{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px}
 .sound button{width:38px;height:38px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);font-size:18px}
 .sound .nm{display:flex;flex-direction:column;align-items:center;min-width:9.5em;padding-inline:4px}
@@ -137,6 +142,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
   <header class="top">
     <div class="brand">GIRO</div>
     <div class="meta"><span id="clock"></span><span id="info">giro libero</span></div>
+    <div class="beat" id="beat" aria-hidden="true" hidden></div>
     <div class="acts">
       <button class="big" id="playBtn">▶ PLAY</button>
       <button class="big" id="dubBtn">● SOVRAINCIDI</button>
@@ -149,7 +155,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
   </header>
 
   <section class="soundbar" aria-label="Suoni">
-    <div class="sbh"><span class="sbt">Suono</span><span class="sbk">▲ ▼ sull'Axiom · oppure clic</span></div>
+    <div class="sbh"><span class="sbt">Suono</span><span class="sbk">▲ ▼ cambia famiglia · tasto centrale: suono successivo · oppure clic</span></div>
     <div class="sounds" id="sounds"></div>
     <div class="drumkeys" id="drumKeys" hidden></div>
   </section>
@@ -163,7 +169,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     <span><b>Pad</b> loop 1–8</span>
     <span><b>Tieni premuto</b> cancella</span>
     <span><b>●</b> sovraincidi</span>
-    <span><b>■ ▶</b> stop / play</span>
+    <span><b>■</b> fine a tempo · tenuto: cancella tutto</span>
+    <span><b>▲ ▼</b> famiglia · <b>centrale</b> suono</span>
     <span><b>◀ ▶</b> annulla / ripeti</span>
         <span><b>Manopole 1–8</b> volume dei loop</span>
   </div>
@@ -180,8 +187,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     </section>
     <section>
       <h3>Tempismo</h3>
-      <div class="sl"><span>Latenza <b id="latVal">—</b></span><input type="range" id="lat" min="0" max="150" step="1"></div>
-      <p class="help">Se le sovraincisioni o i loop dopo il primo risultano in ritardo, alza questo valore; se risultano in anticipo, abbassalo. <button class="small" id="latAuto">AUTOMATICA</button></p>
+      <p>Ritardo audio: <b id="delayVal">—</b></p>
+      <p class="help">Il tempo tra il tasto e il suono. Sotto i 30 ms non si sente. Le cuffie o le casse Bluetooth aggiungono molto ritardo: dal vivo usa cuffie col filo o casse collegate al PC. Non serve regolare niente: i loop registrano esattamente quello che senti.</p>
     </section>
     <section>
       <h3>Axiom</h3>
@@ -189,11 +196,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>Pad vuoto</td><td>Pronto: registra dalla prima nota. Ripremi per chiudere.</td></tr>
         <tr><td>Pad pieno</td><td>Ferma o fa ripartire il loop, a tempo.</td></tr>
         <tr><td>Pad tenuto</td><td>Cancella il loop (◀ lo riporta indietro).</td></tr>
-        <tr><td>● o tasto centrale</td><td>Sovraincidi sull'ultimo loop toccato; ripremi per smettere.</td></tr>
-        <tr><td>■</td><td>Ferma tutto. Da fermo, due volte: cancella tutto.</td></tr>
-        <tr><td>▶</td><td>Fa ripartire tutto dall'inizio.</td></tr>
+        <tr><td>●</td><td>Sovraincidi sull'ultimo loop toccato; ripremi per smettere.</td></tr>
+        <tr><td>■</td><td>Ferma tutto alla fine del giro, sul battere. Ripremi per fermare subito. Tenuto premuto 2 secondi: cancella tutto.</td></tr>
+        <tr><td>▶</td><td>Da fermo, fa ripartire tutto dall'inizio.</td></tr>
         <tr><td>◀ ▶ (frecce)</td><td>Annulla / ripristina l'ultimo strato.</td></tr>
-        <tr><td>▲ ▼</td><td>Cambia suono della tastiera.</td></tr>
+        <tr><td>▲ ▼</td><td>Cambia famiglia di suoni (riprende l'ultimo suono usato in quella famiglia).</td></tr>
+        <tr><td>Tasto centrale</td><td>Suono successivo nella stessa famiglia.</td></tr>
         <tr><td>Quantizza</td><td>Le note registrate vengono rimesse a tempo sulla griglia (1/16 o 1/8). Il primo loop decide il tempo: dura quanto vuoi, la griglia lo divide in parti uguali. Funziona con i suoni di Giro, non con un microfono.</td></tr>
         <tr><td>Manopole 1–8</td><td>Volume dei loop 1–8.</td></tr>
       </table>

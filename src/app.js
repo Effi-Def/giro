@@ -1,7 +1,7 @@
 // ---------- Audio ----------
 let ctx,sr,node,core=null,ready=false,masterIn,masterOut,cutF,dry,wet,noiseBuf,liveBus=[],usingWorklet=false;
-const SET={sound:0,cut:1,rev:.25,master:.9,latMs:null,oct:0,quant:4};
-function loadSet(){try{Object.assign(SET,JSON.parse(localStorage.getItem("giro5.set")||"{}"))}catch(_){}SET.sound=Math.min(SET.sound|0,SOUNDS.length-1)}
+const SET={sound:0,cut:1,rev:.25,master:.9,oct:0,quant:4};
+function loadSet(){try{Object.assign(SET,JSON.parse(localStorage.getItem("giro5.set")||"{}"))}catch(_){}SET.sound=Math.min(SET.sound|0,SOUNDS.length-1);delete SET.latMs}
 function saveSet(){try{localStorage.setItem("giro5.set",JSON.stringify(SET))}catch(_){}}
 
 async function initAudio(){
@@ -44,12 +44,13 @@ function applyMix(){if(!ctx)return;const t=ctx.currentTime;
 const nowF=()=>Math.round(ctx.currentTime*sr);
 // i suoni sono tutti interni: le note e i loop escono con lo stesso ritardo e chi suona si allinea a orecchio,
 // quindi la latenza d'uscita non va compensata (spostava le note in anticipo). Resta solo il buffer dello ScriptProcessor.
-function latencyFrames(){const auto=usingWorklet?0:1024/sr*1000;
- return Math.round(((SET.latMs??auto))/1000*sr)}
+function latencyFrames(){return usingWorklet?0:1024}
+// ritardo tra il tasto e il suono: solo da mostrare nelle impostazioni
+function audioDelayMs(){return((ctx.outputLatency||0)+(ctx.baseLatency||0))*1000}
 
 // ---------- Stato del looper ----------
 const NL=8;
-const G={base:null,beats:4,origin:0,running:false,cur:0,sel:0,ev:[],
+const G={base:null,beats:4,origin:0,running:false,stopAt:0,cur:0,sel:0,ev:[],
  loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,undo:0,redo:0}))};
 const anyHas=()=>G.loops.some(l=>l.has||l.state==="rec"||l.state==="closing");
 function Q(){let q=G.base,k=0;while(q/2>=sr*.9&&k<3){q/=2;k++}return Math.round(q)}
@@ -122,25 +123,39 @@ function clearLoop(i){const L=G.loops[i];
  flashHint(`Loop ${i+1} cancellato. ◀ (annulla) lo riporta indietro.`)}
 
 function playAll(f){if(!G.base)return;f=f??nowF()+Math.round(sr*.02);
- const delta=f-G.origin;G.origin=f;G.loops.forEach(L=>{L.t0+=delta;L.pend=null});send({type:"shift",delta});
+ G.stopAt=0;const delta=f-G.origin;G.origin=f;G.loops.forEach(L=>{L.t0+=delta;L.pend=null});send({type:"shift",delta});
  G.running=true;G.loops.forEach((L,i)=>{if(L.has&&(L.state==="play"||L.state==="dub"))send({type:"gate",i,on:L.muted?0:1,frame:f})});render()}
-function stopAll(){const f=nowF();
+function stopAll(){const f=nowF();G.stopAt=0;
  G.loops.forEach((L,i)=>{
   if(L.state==="rec")close(i);
   if(L.state==="armed")L.state="empty";
   if(L.state==="dub")endDub(i);
   if(L.pend){L.muted=L.pend.muted;L.pend=null}
-  send({type:"gate",i,on:0,frame:f})});
+  // un loop che sta chiudendo partirebbe al suo confine: lo spengo lì
+  send({type:"gate",i,on:0,frame:L.state==="closing"?Math.max(f,L.end):f})});
  G.running=false;render()}
-let stopArm=0;
+// ■ a loop avviati: si ferma tutto alla fine del giro, sul battere; ■ di nuovo: subito
 function stopButton(){if(!ready)return;
- if(G.running||G.loops.some(l=>l.state==="rec"||l.state==="armed")){stopAll();return}
- if(!anyHas())return;
- if(performance.now()-stopArm<2000){stopArm=0;clearAll();return}
- stopArm=performance.now();flashHint("Premi ancora <b>■</b> per cancellare tutti i loop.")}
-function clearAll(){send({type:"reset"});G.base=null;G.running=false;G.ev=[];
+ if(G.stopAt||!G.running){if(G.stopAt||G.loops.some(l=>l.state==="rec"||l.state==="armed"))stopAll();return}
+ const f=nowF();let at=G.origin+Math.ceil((f-G.origin)/G.base)*G.base;if(at-f<sr*.03)at+=G.base;
+ G.stopAt=at;
+ G.loops.forEach((L,i)=>{
+  if(L.state==="rec")close(i);
+  if(L.state==="armed")L.state="empty";
+  if(L.state==="dub")send({type:"undub",i,frame:at});
+  send({type:"gate",i,on:0,frame:at})});
+ render()}
+// ■ (o spazio) tenuto premuto 2 s: cancella tutto. Dall'Axiom solo se il tasto manda anche il rilascio,
+// altrimenti ogni pressione cancellerebbe tutto.
+let stopHold=0,stopRel=false;
+function stopPress(){clearTimeout(stopHold);
+ stopHold=setTimeout(()=>{if(!anyHas())return;flashHint("Continua a tenere premuto per <b>cancellare tutto</b>…");
+  stopHold=setTimeout(()=>{stopHold=0;if(anyHas())clearAll()},1500)},500)}
+function stopRelease(){clearTimeout(stopHold);stopHold=0}
+function clearAll(){send({type:"reset"});G.base=null;G.running=false;G.stopAt=0;G.ev=[];
  G.loops.forEach(L=>Object.assign(L,{state:"empty",has:false,muted:false,pend:null,peaks:null,undo:0,redo:0}));flashHint("Tutto cancellato. Il prossimo giro lo decidi tu.")}
-function playButton(){if(!ready)return;if(!G.base){flashHint(START_HINT);return}playAll()}
+function playButton(){if(!ready)return;if(!G.base){flashHint(START_HINT);return}
+ if(G.running){flashHint("Sta già suonando. <b>■</b> per fermare a fine giro.");return}playAll()}
 function dubButton(){if(!ready)return;const i=G.sel,L=G.loops[i];
  if(L.state==="play")startDub(i);else if(L.state==="dub")endDub(i);else tap(i)}
 function undoSel(redo){if(!ready)return;const i=G.sel,L=G.loops[i];
@@ -161,6 +176,7 @@ function onCoreMsg(m){const L=G.loops[m.i];if(!L)return;
   render()}}
 
 function tick(){if(!ready)return;const f=nowF();let ch=false;
+ if(G.stopAt&&f>=G.stopAt){stopAll();ch=true}
  G.loops.forEach(L=>{
   if(L.state==="closing"&&f>=L.end){if(L.q)renderRec(G.loops.indexOf(L));L.state="play";rotateBus();ch=true}
   if(L.pend&&f>=L.pend.at){L.muted=L.pend.muted;L.pend=null;ch=true}});
@@ -183,8 +199,16 @@ function noteOff(note,force){const h=held.get(note);if(!h)return;if(sustain&&!fo
  h.v.release(ctx.currentTime);held.delete(note);uiNote(note,false);
  if(h.ev&&!h.ev.done){h.ev.off=nowF();if(h.ev.kind==="dub")commitDubNote(h.ev)}}
 function setSustain(on){sustain=on;if(!on)[...held.entries()].filter(([,h])=>h.sus).forEach(([n])=>noteOff(n,true))}
-function setSound(i){if(i===SET.sound)return;SET.sound=i;saveSet();if(ready)loadSound(i);render()}
-function stepSound(d){setSound((SET.sound+d+SOUNDS.length)%SOUNDS.length)}
+function setSound(i){lastInCat[SOUNDS[i].cat]=i;if(i===SET.sound)return;SET.sound=i;saveSet();if(ready)loadSound(i);render()}
+// ▲▼ saltano di famiglia (riprendendo l'ultimo suono usato lì), il tasto centrale scorre i suoni della famiglia
+const lastInCat={};
+const CATS=[...new Set(SOUNDS.map(s=>s.cat))];
+function soundHint(){const s=SOUNDS[SET.sound],n=SOUNDS.filter(x=>x.cat===s.cat).length;
+ flashHint(`${s.cat}: <b>${s.name}</b>`+(n>1?" · tasto centrale per gli altri suoni della famiglia":""))}
+function stepFamily(d){const c=CATS[(CATS.indexOf(SOUNDS[SET.sound].cat)+d+CATS.length)%CATS.length];
+ setSound(lastInCat[c]??SOUNDS.findIndex(s=>s.cat===c));soundHint()}
+function stepInFamily(d){const c=SOUNDS[SET.sound].cat,ids=SOUNDS.map((s,i)=>s.cat===c?i:-1).filter(i=>i>=0);
+ setSound(ids[(ids.indexOf(SET.sound)+d+ids.length)%ids.length]);soundHint()}
 
 // ---------- Pad: tocco = azione, tenuto premuto = cancella ----------
 const holdT={};
@@ -194,7 +218,7 @@ function padUp(i){clearTimeout(holdT[i]);holdT[i]=null}
 // ---------- MIDI (Axiom AIR Mini 32, modo MIDI, canale 1) ----------
 // pad 1–8 = note 36–43 · manopole 1–8 = CC 1–8 · ■ ▶ ● = CC 16 17 18
 // ◀ ▶ ▲ ▼ = CC 19 20 21 22 · tasto centrale = CC 23 · sustain = CC 64
-const BTN={16:stopButton,17:playButton,18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepSound(1),22:()=>stepSound(-1),23:dubButton};
+const BTN={17:playButton,18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepFamily(1),22:()=>stepFamily(-1),23:()=>stepInFamily(1)};
 function initMIDI(){
  if(!navigator.requestMIDIAccess){setMidi(false,"MIDI non supportato: usa Chrome");return}
  navigator.requestMIDIAccess().then(acc=>{
@@ -207,6 +231,7 @@ function onMIDI(e){const [st,d1,d2=0]=e.data,type=st&0xf0;if(st>=0xF0)return;
  if(diagOn&&(on||cc)){const k=(cc?"CC ":"nota ")+d1+" · canale "+((st&15)+1);if(!diagLines.has(k)){diagLines.set(k,1);$("#diag").textContent=[...diagLines.keys()].join("\n")}}
  if((on||off)&&d1>=36&&d1<=43){const i=d1-36;if(on){flash(`[data-loop="${i}"]`);padDown(i)}else padUp(i);return}
  if(cc){if(d1===64)return setSustain(d2>=64);
+  if(d1===16){if(d2>63){flash(`[data-key="16"]`);stopButton();if(stopRel)stopPress()}else{stopRel=true;stopRelease()}return}
   if(BTN[d1]){if(d2>63){flash(`[data-key="${d1}"]`);BTN[d1]()}return}
   if(d1>=1&&d1<=8){const i=d1-1;G.loops[i].vol=d2/127;send({type:"vol",i,v:d2/127});render();return}
   return}
@@ -219,16 +244,19 @@ addEventListener("keydown",e=>{
  if(!$("#settings").hidden){if(e.key==="Escape")closeSettings();return}
  if(e.target.matches("input,select")||e.ctrlKey||e.metaKey||e.altKey)return;
  const k=e.key.toLowerCase();
- if(e.code==="Space"){e.preventDefault();if(!e.repeat)(G.running?stopButton:playButton)();return}
+ if(e.code==="Space"){e.preventDefault();if(!e.repeat){(G.running?stopButton:playButton)();stopPress()}return}
  if(e.repeat)return;
  if(/^[1-8]$/.test(k))return padDown(+k-1);
  if(k==="r")return dubButton();
  if(k==="q")return cycleQuant();
  if(e.key==="Backspace"){e.preventDefault();return undoSel(false)}
- if(e.key==="ArrowUp"){e.preventDefault();return stepSound(1)}
- if(e.key==="ArrowDown"){e.preventDefault();return stepSound(-1)}
+ if(e.key==="ArrowUp"){e.preventDefault();return stepFamily(1)}
+ if(e.key==="ArrowDown"){e.preventDefault();return stepFamily(-1)}
+ if(e.key==="ArrowRight"){e.preventDefault();return stepInFamily(1)}
+ if(e.key==="ArrowLeft"){e.preventDefault();return stepInFamily(-1)}
  if(k==="z"||k==="x"){SET.oct=Math.max(-3,Math.min(3,SET.oct+(k==="z"?-1:1)));flashHint(`Ottava tastiera PC: ${SET.oct>0?"+":""}${SET.oct}`);return}
  const idx=KEYMAP.indexOf(k);if(idx>=0){const n=60+SET.oct*12+idx;pcHeld.set(k,n);noteOn(n,.8)}});
 addEventListener("keyup",e=>{const k=e.key.toLowerCase();
+ if(e.code==="Space")return stopRelease();
  if(/^[1-8]$/.test(k))return padUp(+k-1);
  if(pcHeld.has(k)){noteOff(pcHeld.get(k));pcHeld.delete(k)}});
