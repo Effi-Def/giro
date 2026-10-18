@@ -85,6 +85,30 @@ async def main():
         assert r2['dubRouted']=='quant' and r2['dubPend'] is not None and abs(r2['dubPend']-0.25)<0.02,r2
         assert r2['onBeat'] is not None and abs(r2['onBeat']-0.5)<0.02,r2
         assert r2['previews']=='undefined',r2
+        # 150 bpm, quantizzazione 1/8: la stima iniziale dice 75 bpm; i levare non devono finire sul battere precedente
+        r3=await pg.evaluate('''async()=>{
+          const sent=[];const _s=send;send=c=>{sent.push(c);_s(c)};
+          const wait=ms=>new Promise(r=>setTimeout(r,ms));
+          const at=async(sec,t0)=>{while((ctx.currentTime-t0)<sec)await wait(1)};
+          const beat=.4,bar=1.6,res={};
+          const on=d=>{const o=[];let last=-1e9;for(let k=1;k<d.length;k++)if(Math.abs(d[k])>.05&&Math.abs(d[k-1])<=.05&&k-last>sr*.15){o.push(+(k/sr/beat).toFixed(2));last=k}return o};
+          const take=async(plan)=>{clearAll();await wait(100);SET.quant=2;tap(0);await wait(30);const T=ctx.currentTime;
+            for(const [t,n] of plan){await at(t*beat,T);noteOn(n,.8);await wait(60);noteOff(n)}await at(bar,T);tap(0);
+            return sent.filter(c=>c.type==="fill"&&c.i===0).pop()};
+          setSound(SOUNDS.findIndex(s=>s.id==="batteria"));
+          // primo loop con cassa sui battiti 1 e 3 e rullante in levare dopo il 2 e il 4 (un po' in anticipo)
+          let f=await take([[0,60],[1.45,62],[2,60],[3.45,62]]);res.firstBpm=Math.round(bpm());res.first=f?on(f.data):null;
+          // primo loop solo sui battiti, poi un levare in sovraincisione
+          f=await take([[0,60],[1,62],[2,60],[3,62]]);await wait(200);
+          G.sel=0;dubButton();const L=G.loops[0];const pos=()=>((((nowF()-L.t0)%L.len)+L.len)%L.len)/sr;
+          while(pos()>.5*beat)await wait(2);while(pos()<1.5*beat-.02)await wait(1);
+          noteOn(66,.8);await wait(60);noteOff(66);await wait(30);dubButton();
+          const pend=sent.filter(c=>c.type==="pend").pop();res.dub=pend?+(pend.start/sr/beat).toFixed(2):null;res.dubBpm=Math.round(bpm());
+          send=_s;return res}''')
+        print(json.dumps(r3))
+        near=lambda a,b:a is not None and len(a)==len(b) and all(abs(x-y)<.06 for x,y in zip(a,b))
+        assert r3['firstBpm']==150 and near(r3['first'],[0,1.5,2,3.5]),r3
+        assert near([r3['dub']],[1.5]) and r3['dubBpm']==150,r3
         assert r2['recRouted']=='quant' and r2['recFill'] and len(r2['recFill'])==2,r2
         await pg.screenshot(path=str(Path(__file__).resolve().parent/'g7.png'))
         print('errori',errs)
