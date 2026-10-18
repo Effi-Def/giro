@@ -113,6 +113,7 @@ function close(i){const L=G.loops[i],f=nowF();
  if(end>f+sr*.02)L.state="closing";else{if(L.q)renderRec(i);L.state="play";rotateBus()}}
 
 function startDub(i){const L=G.loops[i];if(!G.running)playAll();
+ G.loops.forEach((o,j)=>{if(j!==i&&o.state==="dub")endDub(j)}); // una sovraincisione alla volta
  if(L.muted){L.muted=false;L.pend=null;send({type:"gate",i,on:1,frame:nowF()})}
  send({type:"dub",i,bus:G.cur,comp:latencyFrames()});L.state="dub";L.q=SET.quant;render()}
 function endDub(i){send({type:"undub",i});G.loops[i].state="play";rotateBus();render()}
@@ -226,8 +227,18 @@ function initMIDI(){
    setMidi(names.length>0,names.length?names.join(", "):"Nessuna tastiera")};
   bind();acc.onstatechange=bind},()=>setMidi(false,"MIDI non consentito"))}
 let diagOn=false;const diagLines=new Map();
+// sceglie il loop su cui sovraincidere senza toccarne il pad (che lo fermerebbe): solo tra i loop pieni
+function selStep(d){const ids=G.loops.map((L,i)=>L.has?i:-1).filter(i=>i>=0);if(!ids.length)return;
+ const k=ids.indexOf(G.sel),i=k<0?ids[d>0?0:ids.length-1]:ids[(k+d+ids.length)%ids.length];
+ G.sel=i;flash(`[data-loop="${i}"]`);flashHint(`Loop ${i+1} selezionato: <b>●</b> per sovraincidere.`)}
+// pitch bend: su = loop successivo, giù = precedente. Scatta una volta per spinta e si riarma al centro,
+// così funziona sia con una rampa di valori sia con un salto secco.
+let pbArmed=true;
+function pitchBend(v){if(Math.abs(v-8192)<1500){pbArmed=true;return}
+ if(!pbArmed||!ready)return;if(v>12288){pbArmed=false;selStep(1)}else if(v<4096){pbArmed=false;selStep(-1)}}
 function onMIDI(e){const [st,d1,d2=0]=e.data,type=st&0xf0;if(st>=0xF0)return;
  const on=type===0x90&&d2>0,off=type===0x80||(type===0x90&&d2===0),cc=type===0xB0;
+ if(type===0xE0){if(diagOn&&!diagLines.has("pitch bend")){diagLines.set("pitch bend",1);$("#diag").textContent=[...diagLines.keys()].join("\n")}return pitchBend(d1|(d2<<7))}
  if(diagOn&&(on||cc)){const k=(cc?"CC ":"nota ")+d1+" · canale "+((st&15)+1);if(!diagLines.has(k)){diagLines.set(k,1);$("#diag").textContent=[...diagLines.keys()].join("\n")}}
  if((on||off)&&d1>=36&&d1<=43){const i=d1-36;if(on){flash(`[data-loop="${i}"]`);padDown(i)}else padUp(i);return}
  if(cc){if(d1===64)return setSustain(d2>=64);
@@ -246,6 +257,7 @@ addEventListener("keydown",e=>{
  const k=e.key.toLowerCase();
  if(e.code==="Space"){e.preventDefault();if(!e.repeat){(G.running?stopButton:playButton)();stopPress()}return}
  if(e.repeat)return;
+ if(e.shiftKey&&/^Digit[1-8]$/.test(e.code)){const i=+e.code[5]-1;if(G.loops[i].has){G.sel=i;flashHint(`Loop ${i+1} selezionato: <b>●</b> per sovraincidere.`)}return}
  if(/^[1-8]$/.test(k))return padDown(+k-1);
  if(k==="r")return dubButton();
  if(k==="q")return cycleQuant();

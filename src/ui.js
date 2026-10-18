@@ -65,7 +65,7 @@ function hint(){
  if((i=n("dub"))>=0)return[`<b>Sovraincisione sul loop ${i+1}.</b> Suona sopra, premi ● per smettere.`,"dub"];
  if(!anyHas())return[START_HINT,"off"];
  if(!G.running)return["Fermo. <b>▶</b> per ripartire · tieni premuto <b>■</b> per cancellare tutto.","off"];
- return["Pad vuoto: nuovo loop · pad pieno: ferma / riparti · <b>●</b> sovraincidi sull'ultimo toccato · <b>■</b> fine a tempo · tieni premuto un pad: cancella.","play"]}
+ return["Pad vuoto: nuovo loop · pad pieno: ferma / riparti · <b>●</b> sovraincidi sul loop selezionato (pitch bend per cambiarlo) ·<b>■</b> fine a tempo · tieni premuto un pad: cancella.","play"]}
 
 function render(){
  $$(".loop").forEach(b=>{const i=+b.dataset.loop,L=G.loops[i];

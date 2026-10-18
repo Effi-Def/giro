@@ -88,6 +88,7 @@ L'Axiom deve stare in **modo MIDI**: tasto H finché i LED Volume/Pan/Inst-FX so
 | ■ ▶ ● | CC 16 17 18 | stop alla fine del giro (ripremuto: subito; tenuto 2 s: cancella tutto, solo se il tasto manda anche il rilascio) · play da capo, solo da fermo · sovraincidi sul loop selezionato |
 | ◀ ▶ ▲ ▼ | CC 19 20 21 22 | annulla · ripeti · famiglia di suoni successiva · precedente (riprende l'ultimo suono usato in quella famiglia) |
 | Tasto centrale | CC 23 | suono successivo nella stessa famiglia |
+| Pitch bend | 0xE0 | su / giù: seleziona il loop pieno successivo / precedente senza fermarlo (scatta una volta per spinta, si riarma al centro; non verificato sull'Axiom) |
 | Sustain | CC 64 | pedale |
 
 Insidie note:
@@ -95,14 +96,14 @@ Insidie note:
 - Il tasto Mod potrebbe mandare CC 1 come la manopola 1 (non verificato).
 - I layout dei pad a schermo seguono la disposizione fisica: 5–8 sopra, 1–4 sotto.
 
-Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, `Q` quantizzazione, spazio play/stop (tenuto 2 s: cancella tutto), Backspace annulla, frecce su/giù famiglia, sinistra/destra suono nella famiglia.
+Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `Maiusc+1–8` seleziona il loop senza fermarlo, `R` sovraincidi, `Q` quantizzazione, spazio play/stop (tenuto 2 s: cancella tutto), Backspace annulla, frecce su/giù famiglia, sinistra/destra suono nella famiglia.
 
 ## Test
 
 - `node tests/core_test.js` — test numerici del LoopCore (registrazione, code, compensazione, multipli, sovraincisione, annulla/ripeti, gate, cancella, shift, ripiegamento). Devono dare tutti OK.
 - `python tests/flow_test.py` — flusso reale in Chromium headless con Playwright: primo loop, secondo loop, sovraincisione, annulla, stop a tempo, cancella; controlla che non ci siano errori e scroll orizzontale a 420 px.
 - `python tests/quant_test.py` — suona note fuori griglia e verifica che nel loop finiscano sulla griglia; verifica la sovraincisione quantizzata.
-- `python tests/live_test.py` — comandi dal vivo: famiglie di suoni e tasto centrale, battito visivo, ▶ ignorato mentre suona, ■ a fine giro, ■■ subito, ■ tenuto che cancella tutto (e pressione breve che non cancella).
+- `python tests/live_test.py` — comandi dal vivo: famiglie di suoni e tasto centrale, pitch bend che seleziona il loop, battito visivo, ▶ ignorato mentre suona, ■ a fine giro, ■■ subito, ■ tenuto che cancella tutto (e pressione breve che non cancella).
 - `python tests/sounds_test.py` — caricamento dei 20 suoni, livelli misurati, registrazione con pianoforte e batteria.
 
 Nel container il Chromium di Playwright è già installato; avvialo con `--autoplay-policy=no-user-gesture-required`. Il MIDI reale non si può testare: risulta "non consentito" ed è normale.
