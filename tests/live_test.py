@@ -1,5 +1,6 @@
 # Comandi pensati per suonare dal vivo: ■ a fine giro, ■■ subito, ▶ solo da fermo, ■ tenuto = cancella tutto,
-# ▲▼ per famiglia e tasto centrale dentro la famiglia, pitch bend che seleziona il loop, battito visivo.
+# ▲▼ per famiglia e tasto centrale dentro la famiglia, pitch bend che seleziona il loop, battito visivo,
+# drop e build-up con ▶, rientro dei pad sull'1.
 from pathlib import Path
 import asyncio,json
 from playwright.async_api import async_playwright
@@ -25,6 +26,20 @@ async def main():
           const pb=v=>onMIDI({data:[0xE0,v&127,v>>7]});
           G.sel=1;pb(10000);pb(14000);pb(16383);pb(14000);res.pbOnce=G.sel;pb(8192);pb(16383);pb(8192);res.pbAgain=G.sel;
           pb(0);pb(8192);res.pbDown=G.sel;res.pbPlaying=G.loops[0].state==="play"&&!G.loops[0].muted&&G.loops[1].state==="play"&&!G.loops[1].muted;
+          // drop: tocco breve di ▶ (rilascio già visto) -> al prossimo 1 resta solo il loop selezionato
+          const onBar=at=>Math.abs((at-G.origin)%barF())<1;
+          G.sel=1;cc(17,0);cc(17,127);await wait(100);cc(17,0);
+          const L0=G.loops[0];res.dropPend=G.drop&&!!L0.pend&&L0.pend.muted&&onBar(L0.pend.at);
+          const atD=L0.pend?L0.pend.at:0;while(nowF()<atD+sr*.08)await wait(5);
+          res.dropped=L0.muted&&L0.dropped&&!G.loops[1].muted;
+          // build-up: ▶ tenuto chiude il filtro; al rilascio tutto rientra e il filtro si riapre sull'1
+          const f0=cutF.frequency.value;cc(17,127);await wait(1200);res.buildClosing=building&&cutF.frequency.value<f0*.8;
+          cc(17,0);res.returnPend=!G.drop&&!!L0.pend&&!L0.pend.muted&&onBar(L0.pend.at);
+          const atR=L0.pend?L0.pend.at:0;while(nowF()<atR+sr*.08)await wait(5);
+          res.back=!L0.muted&&!L0.dropped&&Math.abs(cutF.frequency.value-cutHz())<1;
+          // pad pieno: si ferma alla suddivisione, rientra sull'1 della battuta
+          tap(0);const atS=L0.pend.at;while(nowF()<atS+sr*.05)await wait(5);tap(0);res.padOnOne=onBar(L0.pend.at);
+          while(L0.pend)await wait(10);
           // ▶ mentre suona: niente
           const o0=G.origin;playButton();res.playIgnored=G.origin===o0&&G.running;
           // ■: si ferma alla fine del giro
@@ -43,7 +58,7 @@ async def main():
           cc(16,127);await wait(200);cc(16,0);await wait(2200);res.shortKeeps=anyHas();
           return res}''')
         print(json.dumps(r,indent=1));print('errori',errs)
-        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'playIgnored':True,
+        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'playIgnored':True,
              'stopAtBoundary':True,'stillRunning':True,'label':'■ SUBITO','stoppedAfter':True,'immediate':True,'notYet':True,'cleared':True,'shortKeeps':True}
         bad={k:(r.get(k),v) for k,v in exp.items() if r.get(k)!=v}
         assert not bad and not errs,bad

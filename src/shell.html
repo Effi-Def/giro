@@ -37,6 +37,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
   font:700 22px/1 var(--f-display);font-style:normal;color:var(--faint)}
 .beat i.on{background:var(--play);border-color:var(--play);color:#08130a}
 .beat i:first-child.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+#dropBtn{color:var(--sel);border-color:color-mix(in srgb,var(--sel) 45%,var(--line))}
+#dropBtn.on{background:var(--sel);color:#0b1220}
 .sound{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px}
 .sound button{width:38px;height:38px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);font-size:18px}
 .sound .nm{display:flex;flex-direction:column;align-items:center;min-width:9.5em;padding-inline:4px}
@@ -145,6 +147,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     <div class="beat" id="beat" aria-hidden="true" hidden></div>
     <div class="acts">
       <button class="big" id="playBtn">▶ PLAY</button>
+      <button class="big" id="dropBtn" hidden title="Tocco: drop / rientro sull'1 · tenuto: build-up (▶ sull'Axiom, B sul PC)">▶ DROP</button>
       <button class="big" id="dubBtn">● SOVRAINCIDI</button>
       <button class="small" id="qBtn" title="Rimette a tempo le note registrate (Q sul PC)">QUANTIZZA 1/16</button>
       <button class="small" id="undoBtn" title="Annulla l'ultimo strato (◀ sull'Axiom)">◀ ANNULLA</button>
@@ -169,6 +172,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     <span><b>Pad</b> loop 1–8</span>
     <span><b>Tieni premuto</b> cancella</span>
     <span><b>●</b> sovraincidi · <b>pitch bend</b> sceglie il loop</span>
+    <span><b>▶</b> drop · tenuto: build-up</span>
     <span><b>■</b> fine a tempo · tenuto: cancella tutto</span>
     <span><b>▲ ▼</b> famiglia · <b>centrale</b> suono</span>
     <span><b>◀ ▶</b> annulla / ripeti</span>
@@ -194,12 +198,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
       <h3>Axiom</h3>
       <table class="tbl">
         <tr><td>Pad vuoto</td><td>Pronto: registra dalla prima nota. Ripremi per chiudere.</td></tr>
-        <tr><td>Pad pieno</td><td>Ferma o fa ripartire il loop, a tempo.</td></tr>
+        <tr><td>Pad pieno</td><td>Ferma il loop a tempo; lo fa rientrare sull'1 della battuta.</td></tr>
         <tr><td>Pad tenuto</td><td>Cancella il loop (◀ lo riporta indietro).</td></tr>
         <tr><td>●</td><td>Sovraincidi sul loop selezionato (l'ultimo toccato); ripremi per smettere.</td></tr>
         <tr><td>Pitch bend</td><td>Su / giù: seleziona il loop successivo / precedente senza fermarlo. Poi ● per sovraincidere.</td></tr>
         <tr><td>■</td><td>Ferma tutto alla fine del giro, sul battere. Ripremi per fermare subito. Tenuto premuto 2 secondi: cancella tutto.</td></tr>
-        <tr><td>▶</td><td>Da fermo, fa ripartire tutto dall'inizio.</td></tr>
+        <tr><td>▶</td><td>Da fermo, fa ripartire tutto dall'inizio. Mentre suona, <b>tocco = drop</b>: al prossimo 1 resta solo il loop selezionato; ritocca e tutto rientra sul prossimo 1. <b>Tenuto = build-up</b>: il suono si chiude piano piano; quando lasci si riapre di colpo sull'1 (e, se eri in drop, rientra tutto).</td></tr>
         <tr><td>◀ ▶ (frecce)</td><td>Annulla / ripristina l'ultimo strato.</td></tr>
         <tr><td>▲ ▼</td><td>Cambia famiglia di suoni (riprende l'ultimo suono usato in quella famiglia).</td></tr>
         <tr><td>Tasto centrale</td><td>Suono successivo nella stessa famiglia.</td></tr>

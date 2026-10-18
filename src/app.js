@@ -50,7 +50,7 @@ function audioDelayMs(){return((ctx.outputLatency||0)+(ctx.baseLatency||0))*1000
 
 // ---------- Stato del looper ----------
 const NL=8;
-const G={base:null,beats:4,origin:0,running:false,stopAt:0,cur:0,sel:0,ev:[],
+const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,cur:0,sel:0,ev:[],
  loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,undo:0,redo:0}))};
 const anyHas=()=>G.loops.some(l=>l.has||l.state==="rec"||l.state==="closing");
 function Q(){let q=G.base,k=0;while(q/2>=sr*.9&&k<3){q/=2;k++}return Math.round(q)}
@@ -90,9 +90,11 @@ function tap(i){
   case "rec":close(i);break;
   case "closing":break;
   case "play":
+   L.dropped=false; // toccato a mano durante un drop: da qui in poi lo decidi tu
    if(!G.running){L.muted=!L.muted;break}
    if(L.pend){L.pend=null;send({type:"gate",i,on:L.muted?0:1,frame:nowF()});break}
-   {const at=nextQ(nowF());L.pend={muted:!L.muted,at};send({type:"gate",i,on:L.muted?1:0,frame:at})}break;
+   // si ferma alla suddivisione successiva, rientra sull'1 della battuta
+   {const at=L.muted?nextBar(nowF()):nextQ(nowF());L.pend={muted:!L.muted,at};send({type:"gate",i,on:L.muted?1:0,frame:at})}break;
   case "dub":endDub(i);break}
  render()}
 
@@ -120,7 +122,7 @@ function endDub(i){send({type:"undub",i});G.loops[i].state="play";rotateBus();re
 
 function clearLoop(i){const L=G.loops[i];
  if(L.state==="armed"){L.state="empty";render();return}
- send({type:"clear",i});Object.assign(L,{state:"empty",has:false,muted:false,pend:null,peaks:null});
+ send({type:"clear",i});Object.assign(L,{state:"empty",has:false,muted:false,pend:null,dropped:false,peaks:null});
  flashHint(`Loop ${i+1} cancellato. ◀ (annulla) lo riporta indietro.`)}
 
 function playAll(f){if(!G.base)return;f=f??nowF()+Math.round(sr*.02);
@@ -132,9 +134,10 @@ function stopAll(){const f=nowF();G.stopAt=0;
   if(L.state==="armed")L.state="empty";
   if(L.state==="dub")endDub(i);
   if(L.pend){L.muted=L.pend.muted;L.pend=null}
+  if(L.dropped){L.dropped=false;L.muted=false} // tolto dal drop: alla ripartenza suona di nuovo
   // un loop che sta chiudendo partirebbe al suo confine: lo spengo lì
   send({type:"gate",i,on:0,frame:L.state==="closing"?Math.max(f,L.end):f})});
- G.running=false;render()}
+ G.drop=false;buildCancel();G.running=false;render()}
 // ■ a loop avviati: si ferma tutto alla fine del giro, sul battere; ■ di nuovo: subito
 function stopButton(){if(!ready)return;
  if(G.stopAt||!G.running){if(G.stopAt||G.loops.some(l=>l.state==="rec"||l.state==="armed"))stopAll();return}
@@ -153,10 +156,44 @@ function stopPress(){clearTimeout(stopHold);
  stopHold=setTimeout(()=>{if(!anyHas())return;flashHint("Continua a tenere premuto per <b>cancellare tutto</b>…");
   stopHold=setTimeout(()=>{stopHold=0;if(anyHas())clearAll()},1500)},500)}
 function stopRelease(){clearTimeout(stopHold);stopHold=0}
-function clearAll(){send({type:"reset"});G.base=null;G.running=false;G.stopAt=0;G.ev=[];
- G.loops.forEach(L=>Object.assign(L,{state:"empty",has:false,muted:false,pend:null,peaks:null,undo:0,redo:0}));flashHint("Tutto cancellato. Il prossimo giro lo decidi tu.")}
+function clearAll(){send({type:"reset"});G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();G.ev=[];
+ G.loops.forEach(L=>Object.assign(L,{state:"empty",has:false,muted:false,pend:null,dropped:false,peaks:null,undo:0,redo:0}));flashHint("Tutto cancellato. Il prossimo giro lo decidi tu.")}
 function playButton(){if(!ready)return;if(!G.base){flashHint(START_HINT);return}
  if(G.running){flashHint("Sta già suonando. <b>■</b> per fermare a fine giro.");return}playAll()}
+
+// ---------- Drop e build-up: ▶ mentre i loop suonano ----------
+// tocco = drop: al prossimo 1 resta solo il loop selezionato; ritocco = tutto rientra sul prossimo 1.
+// tenuto = build-up: il filtro si chiude piano; quando lasci si riapre di colpo sul prossimo 1 (e finisce il drop).
+const barF=()=>G.base*Math.min(1,4/G.beats);
+function nextBar(f){const b=barF();return G.origin+Math.ceil((f-G.origin+sr*.03)/b)*b}
+function dropToggle(){if(!G.running||G.stopAt)return;const at=nextBar(nowF());
+ if(G.drop){G.drop=false;
+  G.loops.forEach((L,i)=>{if(!L.dropped)return;L.dropped=false;L.pend={muted:false,at};send({type:"gate",i,on:1,frame:at})})}
+ else{const ids=[];G.loops.forEach((L,i)=>{if(i!==G.sel&&L.has&&L.state==="play"&&!L.muted&&!L.pend)ids.push(i)});
+  if(!ids.length){flashHint("Niente da togliere: suona solo il loop selezionato.");return}
+  G.drop=true;ids.forEach(i=>{const L=G.loops[i];L.dropped=true;L.pend={muted:true,at};send({type:"gate",i,on:0,frame:at})})}
+ render()}
+let building=false;const FILTER_Q=1;
+const cutHz=()=>200*Math.pow(100,SET.cut);
+function holdParam(p,t){try{p.cancelAndHoldAtTime(t)}catch(_){p.cancelScheduledValues(t);p.setValueAtTime(p.value,t)}}
+function buildStart(){if(!G.running||G.stopAt)return;building=true;
+ const t=ctx.currentTime,dur=Math.max(2,Math.min(8,2*barF()/sr)),f=cutF.frequency,q=cutF.Q;
+ holdParam(f,t);f.exponentialRampToValueAtTime(Math.min(f.value,300),t+dur);
+ holdParam(q,t);q.linearRampToValueAtTime(8,t+dur);render()}
+function buildEnd(){if(!building)return;building=false;
+ const T=nextBar(nowF())/sr,t=ctx.currentTime;
+ holdParam(cutF.frequency,t);holdParam(cutF.Q,t);cutF.frequency.setValueAtTime(cutHz(),T);cutF.Q.setValueAtTime(FILTER_Q,T);
+ if(G.drop)dropToggle();render()}
+function buildCancel(){if(!building||!ctx)return;building=false;const t=ctx.currentTime;
+ holdParam(cutF.frequency,t);holdParam(cutF.Q,t);cutF.frequency.setTargetAtTime(cutHz(),t,.05);cutF.Q.setTargetAtTime(FILTER_Q,t,.05)}
+// ▶ dall'Axiom distingue tocco e tenuto solo se il tasto manda anche il rilascio; altrimenti ogni pressione è un tocco
+let playHoldT=0,playHeld=false,playRel=false;
+function playDown(canHold){if(!ready)return;
+ if(!G.running){playButton();return}
+ if(!canHold){dropToggle();return}
+ playHeld=true;clearTimeout(playHoldT);playHoldT=setTimeout(()=>{playHoldT=0;buildStart()},400)}
+function playUp(){if(!playHeld)return;playHeld=false;
+ if(playHoldT){clearTimeout(playHoldT);playHoldT=0;dropToggle()}else buildEnd()}
 function dubButton(){if(!ready)return;const i=G.sel,L=G.loops[i];
  if(L.state==="play")startDub(i);else if(L.state==="dub")endDub(i);else tap(i)}
 function undoSel(redo){if(!ready)return;const i=G.sel,L=G.loops[i];
@@ -219,7 +256,7 @@ function padUp(i){clearTimeout(holdT[i]);holdT[i]=null}
 // ---------- MIDI (Axiom AIR Mini 32, modo MIDI, canale 1) ----------
 // pad 1–8 = note 36–43 · manopole 1–8 = CC 1–8 · ■ ▶ ● = CC 16 17 18
 // ◀ ▶ ▲ ▼ = CC 19 20 21 22 · tasto centrale = CC 23 · sustain = CC 64
-const BTN={17:playButton,18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepFamily(1),22:()=>stepFamily(-1),23:()=>stepInFamily(1)};
+const BTN={18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepFamily(1),22:()=>stepFamily(-1),23:()=>stepInFamily(1)};
 function initMIDI(){
  if(!navigator.requestMIDIAccess){setMidi(false,"MIDI non supportato: usa Chrome");return}
  navigator.requestMIDIAccess().then(acc=>{
@@ -243,6 +280,7 @@ function onMIDI(e){const [st,d1,d2=0]=e.data,type=st&0xf0;if(st>=0xF0)return;
  if((on||off)&&d1>=36&&d1<=43){const i=d1-36;if(on){flash(`[data-loop="${i}"]`);padDown(i)}else padUp(i);return}
  if(cc){if(d1===64)return setSustain(d2>=64);
   if(d1===16){if(d2>63){flash(`[data-key="16"]`);stopButton();if(stopRel)stopPress()}else{stopRel=true;stopRelease()}return}
+  if(d1===17){if(d2>63){flash(`[data-key="17"]`);playDown(playRel)}else{playRel=true;playUp()}return}
   if(BTN[d1]){if(d2>63){flash(`[data-key="${d1}"]`);BTN[d1]()}return}
   if(d1>=1&&d1<=8){const i=d1-1;G.loops[i].vol=d2/127;send({type:"vol",i,v:d2/127});render();return}
   return}
@@ -260,6 +298,7 @@ addEventListener("keydown",e=>{
  if(e.shiftKey&&/^Digit[1-8]$/.test(e.code)){const i=+e.code[5]-1;if(G.loops[i].has){G.sel=i;flashHint(`Loop ${i+1} selezionato: <b>●</b> per sovraincidere.`)}return}
  if(/^[1-8]$/.test(k))return padDown(+k-1);
  if(k==="r")return dubButton();
+ if(k==="b")return playDown(true); // come ▶: tocco = drop, tenuto = build-up
  if(k==="q")return cycleQuant();
  if(e.key==="Backspace"){e.preventDefault();return undoSel(false)}
  if(e.key==="ArrowUp"){e.preventDefault();return stepFamily(1)}
@@ -270,5 +309,6 @@ addEventListener("keydown",e=>{
  const idx=KEYMAP.indexOf(k);if(idx>=0){const n=60+SET.oct*12+idx;pcHeld.set(k,n);noteOn(n,.8)}});
 addEventListener("keyup",e=>{const k=e.key.toLowerCase();
  if(e.code==="Space")return stopRelease();
+ if(k==="b")return playUp();
  if(/^[1-8]$/.test(k))return padUp(+k-1);
  if(pcHeld.has(k)){noteOff(pcHeld.get(k));pcHeld.delete(k)}});
