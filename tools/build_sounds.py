@@ -12,9 +12,15 @@ S=[ # id, nome, categoria, cartella, extra
  ('basso','Basso elettrico','Bassi','electric_bass_finger',dict(rel=.1,tr=-12)),
  ('contrabbasso','Contrabbasso','Bassi','acoustic_bass',dict(rel=.12,tr=-12)),
  ('synthbass','Synth bass','Bassi','synth_bass_1',dict(rel=.08,tr=-12)),
+ ('synthbass2','Synth bass 2','Bassi','synth_bass_2',dict(rel=.08,tr=-12)),
  ('archi','Archi','Atmosfere','string_ensemble_1',dict(rel=.5,att=.06,loop=1)),
  ('pad','Pad','Atmosfere','pad_2_warm',dict(rel=.9,att=.12,loop=1)),
  ('coro','Coro','Atmosfere','choir_aahs',dict(rel=.5,att=.05,loop=1)),
+ ('lead','Lead','Synth','lead_2_sawtooth',dict(rel=.15,loop=1)),
+ ('polysynth','Polysynth','Synth','pad_3_polysynth',dict(rel=.4,loop=1)),
+ ('synthbrass','Synth brass','Synth','synth_brass_1',dict(rel=.2,att=.01,loop=1)),
+ ('synthstrings','Synth strings','Synth','synth_strings_1',dict(rel=.6,att=.04,loop=1)),
+ ('sweep','Pad sweep','Synth','pad_8_sweep',dict(rel=.9,att=.1,loop=1)),
 ]
 LM={0:'kick',1:'stick-m',2:'snare-m',3:'clap',4:'snare-h',5:'tom-l',6:'hhclosed',7:'tom-m',8:'hhclosed-short',9:'tom-h',10:'hhopen',11:'crash'}
 TR={0:'kick_bd5025',1:'rimshot_rs',2:'snare_sd5025',3:'clap_cp',4:'snare_sd2550',5:'tom-low_lt25',6:'hihat-close_ch',7:'mid-tom_mt25',8:'maraca_ma',9:'tom-hi_ht25',10:'hihat-open_oh25',11:'cymbal_cy5025'}
@@ -25,7 +31,8 @@ for id,name,cat,folder,ex in S:
 for id,name,folder,mp,gain in [('batteria','Batteria','lm2',LM,.55),('808','Drum machine 808','tr808',TR,1.1)]:
   meta.append(dict(id=id,name=name,cat='Batterie',gain=gain,off=0,drum=1))
   data[id]={k:base64.b64encode(open(f'{folder}/{v}.ogg','rb').read()).decode() for k,v in mp.items()}
-mul={'organo':.5,'coro':.65,'archi':1.5,'pad':1.4,'808':.6,'batteria':.75,'synthbass':1.2,'piano':1.15,'rhodes':1.15,'vibra':1.1}
+mul={'organo':.5,'coro':.65,'archi':1.5,'pad':1.4,'808':.6,'batteria':.75,'synthbass':1.2,'piano':1.15,'rhodes':1.15,'vibra':1.1,
+ 'synthbass2':.9,'synthbrass':.85,'polysynth':1.1,'sweep':1.3}
 for x in meta:x['gain']=round(x['gain']*mul.get(x['id'],1),2)
 open('../src/sounds_meta.js','w').write('const SOUNDS='+json.dumps(meta,ensure_ascii=False)+';\n')
 open('../src/sounds_data.js','w').write('const SAMPLE_DATA='+json.dumps(data,separators=(',',':'))+';\n')

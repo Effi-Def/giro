@@ -1,6 +1,6 @@
 # Giro
 
-Looper audio dal vivo nel browser, pensato per suonare con una **M-Audio Axiom AIR Mini 32**. Funziona come una Boss RC-50 / Loopy Pro: suoni sulla tastiera con strumenti campionati, i pad registrano e lanciano fino a 8 loop. È un unico file HTML (`dist/giro.html`, ~5,5 MB con i campioni dentro) che si apre in Chrome su Windows, senza installazione né internet.
+Looper audio dal vivo nel browser, pensato per suonare con una **M-Audio Axiom AIR Mini 32**. Funziona come una Boss RC-50 / Loopy Pro: suoni sulla tastiera con strumenti campionati, i pad registrano e lanciano fino a 8 loop. È un unico file HTML (`dist/giro.html`, ~9 MB con i campioni dentro) che si apre in Chrome su Windows, senza installazione né internet.
 
 Rispondi sempre in italiano. L'interfaccia è in italiano.
 
@@ -18,14 +18,14 @@ Rispondi sempre in italiano. L'interfaccia è in italiano.
 
 ```
 src/shell.html       HTML + CSS; il segnaposto <!--SCRIPT--> viene sostituito dal build
-src/sounds_meta.js   elenco dei 14 suoni (generato da tools/build_sounds.py)
-src/sounds_data.js   campioni in base64 (generato, 5,3 MB: non aprirlo, non modificarlo a mano)
+src/sounds_meta.js   elenco dei 20 suoni (generato da tools/build_sounds.py)
+src/sounds_data.js   campioni in base64 (generato, 8,7 MB: non aprirlo, non modificarlo a mano)
 src/sampler.js       caricamento campioni, voice() dal vivo, renderNote() per la quantizzazione, preview()
 src/core.js          LoopCore: motore del looper, gira dentro l'AudioWorklet
 src/app.js           audio graph, stato dei loop (G), azioni, quantizzazione, MIDI, tastiera del PC
 src/ui.js            interfaccia: griglia degli 8 loop, pannello suoni, suggerimenti, forme d'onda
 tools/build.py       assembla dist/giro.html — da lanciare dopo OGNI modifica a src/
-tools/fetch_samples.py, analyze_samples.py, build_sounds.py   pipeline dei campioni (in samples/)
+tools/extract_samples.py, fetch_samples.py, analyze_samples.py, build_sounds.py   pipeline dei campioni (in samples/)
 tests/               test (vedi sotto)
 ```
 
@@ -58,21 +58,23 @@ Si quantizza solo l'attacco, non la durata. La griglia è relativa a `G.origin` 
 
 ## Suoni
 
-14 suoni, campionati, incorporati in `sounds_data.js`:
+20 suoni, campionati, incorporati in `sounds_data.js`:
 - Tastiere: Pianoforte, Rhodes, Organo, Vibrafono
 - Chitarre: Acustica, Elettrica
-- Bassi: Basso elettrico, Contrabbasso, Synth bass (trasposti −12, così suonano già nel registro giusto)
+- Bassi: Basso elettrico, Contrabbasso, Synth bass, Synth bass 2 (trasposti −12, così suonano già nel registro giusto)
 - Atmosfere: Archi, Pad, Coro
+- Synth: Lead (dente di sega), Polysynth, Synth brass, Synth strings, Pad sweep
 - Batterie: Batteria (LinnDrum LM-2), Drum machine 808
 
 Fonti: soundfont **MusyngKite** da `raw.githubusercontent.com/gleitz/midi-js-soundfonts` (un campione ogni 3 semitoni) e batterie da `raw.githubusercontent.com/smpldsnds/drum-machines` (ogg Opus).
 
 Dettagli:
-- I campioni durano ~3,16 s. Organo, Archi, Pad e Coro (`loop:1`) ottengono un tratto ripetuto con dissolvenza incrociata tra 1,2 e 2,9 s (`makeLoop`), così durano finché tieni il tasto.
+- I campioni durano ~3,16 s. Organo, Archi, Pad, Coro e tutti i Synth (`loop:1`) ottengono un tratto ripetuto con dissolvenza incrociata tra 1,2 e 2,9 s (`makeLoop`), così durano finché tieni il tasto.
 - `gain` è normalizzato sull'RMS (`analyze_samples.py`) e corretto a orecchio con i moltiplicatori in `build_sounds.py`.
 - `off` salta il silenzio iniziale degli mp3: conta per il tempismo dei loop.
 - Batterie: stessa mappa in ogni ottava. Do cassa, Do# rim, Re rullante, Re# clap, Mi rullante 2, Fa tom basso, Fa# charleston, Sol tom medio, Sol# charleston corto, La tom alto, La# charleston aperto (chiuso dal charleston chiuso), Si piatto.
-- Per aggiungere o cambiare un suono: modifica `INST` in `fetch_samples.py` e la lista `S` in `build_sounds.py`, poi `fetch → analyze → build_sounds → build`.
+- Per aggiungere o cambiare un suono: modifica `INST` in `fetch_samples.py` e la lista `S` in `build_sounds.py`, poi `extract → fetch → analyze → build_sounds → build`. `samples/` non è nel repo: `extract_samples.py` ci rimette i campioni già incorporati (le batterie non hanno uno script di download). Senza ffmpeg, `analyze_samples.py` decodifica con Chromium via Playwright, con lo stesso downmix di ffmpeg (i guadagni tornano identici).
+- Non c'è anteprima quando scegli un suono: è stata tolta perché suonava sopra i loop.
 
 ## Mappa dell'Axiom (fissa, letta dalla diagnostica dell'utente)
 
@@ -99,7 +101,7 @@ Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, `Q` quantizza
 - `node tests/core_test.js` — test numerici del LoopCore (registrazione, code, compensazione, multipli, sovraincisione, annulla/ripeti, gate, cancella, shift, ripiegamento). Devono dare tutti OK.
 - `python tests/flow_test.py` — flusso reale in Chromium headless con Playwright: primo loop, secondo loop, sovraincisione, annulla, stop a tempo, cancella; controlla che non ci siano errori e scroll orizzontale a 420 px.
 - `python tests/quant_test.py` — suona note fuori griglia e verifica che nel loop finiscano sulla griglia; verifica la sovraincisione quantizzata.
-- `python tests/sounds_test.py` — caricamento dei 14 suoni, livelli misurati, registrazione con pianoforte e batteria.
+- `python tests/sounds_test.py` — caricamento dei 20 suoni, livelli misurati, registrazione con pianoforte e batteria.
 
 Nel container il Chromium di Playwright è già installato; avvialo con `--autoplay-policy=no-user-gesture-required`. Il MIDI reale non si può testare: risulta "non consentito" ed è normale.
 

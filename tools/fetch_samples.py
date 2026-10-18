@@ -6,7 +6,9 @@ INST={ # cartella: (lo, hi, passo)
  'acoustic_grand_piano':(33,96,3),'electric_piano_1':(36,93,3),'drawbar_organ':(36,93,3),'vibraphone':(53,89,3),
  'acoustic_guitar_steel':(40,84,3),'electric_guitar_clean':(40,84,3),
  'electric_bass_finger':(28,64,3),'acoustic_bass':(28,64,3),'synth_bass_1':(28,64,3),
- 'string_ensemble_1':(36,93,3),'pad_2_warm':(36,84,3),'choir_aahs':(48,84,3)}
+ 'string_ensemble_1':(36,93,3),'pad_2_warm':(36,84,3),'choir_aahs':(48,84,3),
+ 'lead_2_sawtooth':(36,93,3),'pad_3_polysynth':(36,93,3),'synth_brass_1':(36,93,3),
+ 'synth_strings_1':(36,93,3),'pad_8_sweep':(36,84,3),'synth_bass_2':(28,64,3)}
 jobs=[]
 for ins,(lo,hi,st) in INST.items():
   os.makedirs(ins,exist_ok=True)
