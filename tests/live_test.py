@@ -1,6 +1,6 @@
 # Comandi pensati per suonare dal vivo: ■ a fine giro, ■■ subito, ▶ solo da fermo, ■ tenuto = cancella tutto,
 # ▲▼ per famiglia e tasto centrale dentro la famiglia, pitch bend che seleziona il loop, battito visivo,
-# drop e build-up con ▶, rientro dei pad sull'1.
+# drop e build-up con ▶, rientro dei pad sull'1, modi delle manopole e messaggi HyperControl.
 from pathlib import Path
 import asyncio,json
 from playwright.async_api import async_playwright
@@ -40,6 +40,18 @@ async def main():
           // pad pieno: si ferma alla suddivisione, rientra sull'1 della battuta
           tap(0);const atS=L0.pend.at;while(nowF()<atS+sr*.05)await wait(5);tap(0);res.padOnOne=onBar(L0.pend.at);
           while(L0.pend)await wait(10);
+          // HyperControl (canale 16): pulsante dei modi, manopole CC 33–40, tasto centrale CC 98, pad note 81–88
+          const hc=(n,v)=>onMIDI({data:[0xBF,n,v]});
+          hc(58,127);hc(58,0);res.hcVol=knobMode;hc(58,127);hc(58,0);res.hcPan=knobMode;hc(33,0);res.pan0=G.loops[0].pan;
+          hc(59,127);hc(59,0);res.hcFx=knobMode;hc(34,127);res.fx1=G.loops[1].fx;
+          res.fxBar=document.querySelector('.loop[data-loop="1"] .vol').classList.contains('fx');
+          hc(60,127);hc(60,0);res.hcMidi=knobMode;cc(1,64);res.vol0=Math.abs(G.loops[0].vol-64/127)<1e-6;
+          res.knobLabel=document.querySelector('#knobBtn').textContent;
+          const s0=SET.sound;hc(98,127);hc(98,0);res.hcCenter=SET.sound!==s0;
+          onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad=!!G.loops[0].pend;
+          onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad2=!G.loops[0].pend;
+          setKnobMode("pan");knob(0,64);setKnobMode("fx");knob(1,64);setKnobMode("vol");knob(0,102);
+          res.reset=G.loops[0].pan===0&&G.loops[1].fx===0;
           // ▶ mentre suona: niente
           const o0=G.origin;playButton();res.playIgnored=G.origin===o0&&G.running;
           // ■: si ferma alla fine del giro
@@ -58,7 +70,7 @@ async def main():
           cc(16,127);await wait(200);cc(16,0);await wait(2200);res.shortKeeps=anyHas();
           return res}''')
         print(json.dumps(r,indent=1));print('errori',errs)
-        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'playIgnored':True,
+        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'vol','vol0':True,'knobLabel':'MANOPOLE VOLUME','hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
              'stopAtBoundary':True,'stillRunning':True,'label':'■ SUBITO','stoppedAfter':True,'immediate':True,'notYet':True,'cleared':True,'shortKeeps':True}
         bad={k:(r.get(k),v) for k,v in exp.items() if r.get(k)!=v}
         assert not bad and not errs,bad
