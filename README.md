@@ -15,10 +15,11 @@ Funziona come una Boss RC-50: suoni sulla tastiera con strumenti campionati, i p
 |---|---|
 | Pad 1–8 | loop 1–8: vuoto → pronto · registra → chiudi · pieno → stop/ripartenza a tempo · tenuto 0,8 s → cancella |
 | Manopole 1–8 | volume dei loop |
-| ■ ▶ ● | stop (da fermo, due volte = cancella tutto) · play da capo · sovraincidi |
-| ◀ ▶ ▲ ▼ | annulla · ripeti · suono successivo · suono precedente |
+| ■ ▶ ● | stop alla fine del giro (ripremuto: subito; tenuto 2 s: cancella tutto) · play da capo · sovraincidi |
+| ◀ ▶ ▲ ▼ | annulla · ripeti · famiglia di suoni successiva · precedente |
+| Tasto centrale | suono successivo nella stessa famiglia |
 
-Senza tastiera MIDI: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, `Q` quantizzazione, spazio play/stop, Backspace annulla, frecce su/giù suono.
+Senza tastiera MIDI: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, `Q` quantizzazione, spazio play/stop (tenuto 2 s: cancella tutto), Backspace annulla, frecce su/giù famiglia, sinistra/destra suono nella famiglia.
 
 ## Sviluppo
 
@@ -32,7 +33,7 @@ I dettagli su architettura, quantizzazione e mappa MIDI sono in [CLAUDE.md](CLAU
 
 ## Crediti dei suoni
 
-- Tastiere, chitarre, bassi e atmosfere: soundfont **MusyngKite**, nella conversione di
+- Tastiere, chitarre, bassi, atmosfere e synth: soundfont **MusyngKite**, nella conversione di
   [gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts), rilasciato con licenza
   [Creative Commons Attribution-ShareAlike 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
   I campioni incorporati in `src/sounds_data.js` e nel file della Release sono distribuiti con la stessa licenza.
