@@ -68,8 +68,8 @@ async def main():
           const pend2=sent.filter(c=>c.type==="pend"&&c.i===0)[1];
           res.onBeat=pend2?+(pend2.start/sr).toFixed(3):null;
           await wait(2500);
-          // cambiare suono mentre i loop suonano non deve far partire l'anteprima
-          let pv=0;const _p=preview;preview=i=>{pv++;_p(i)};stepSound(1);stepSound(-1);preview=_p;res.previews=pv;
+          // l'anteprima dei suoni non esiste più
+          res.previews=typeof preview;
           // secondo caso: registrazione partita quantizzata, Q spento a metà
           SET.quant=4;tap(1);await wait(30);
           while(pos(L)<0.05||pos(L)>0.1)await wait(2);
@@ -84,7 +84,7 @@ async def main():
         assert r2['fillsOff']==0,r2
         assert r2['dubRouted']=='quant' and r2['dubPend'] is not None and abs(r2['dubPend']-0.25)<0.02,r2
         assert r2['onBeat'] is not None and abs(r2['onBeat']-0.5)<0.02,r2
-        assert r2['previews']==0,r2
+        assert r2['previews']=='undefined',r2
         assert r2['recRouted']=='quant' and r2['recFill'] and len(r2['recFill'])==2,r2
         await pg.screenshot(path=str(Path(__file__).resolve().parent/'g7.png'))
         print('errori',errs)

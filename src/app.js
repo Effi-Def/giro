@@ -183,7 +183,7 @@ function noteOff(note,force){const h=held.get(note);if(!h)return;if(sustain&&!fo
  h.v.release(ctx.currentTime);held.delete(note);uiNote(note,false);
  if(h.ev&&!h.ev.done){h.ev.off=nowF();if(h.ev.kind==="dub")commitDubNote(h.ev)}}
 function setSustain(on){sustain=on;if(!on)[...held.entries()].filter(([,h])=>h.sus).forEach(([n])=>noteOff(n,true))}
-function setSound(i){if(i===SET.sound)return;SET.sound=i;saveSet();if(ready){loadSound(i);if(!G.running)preview(i)}render()}
+function setSound(i){if(i===SET.sound)return;SET.sound=i;saveSet();if(ready)loadSound(i);render()}
 function stepSound(d){setSound((SET.sound+d+SOUNDS.length)%SOUNDS.length)}
 
 // ---------- Pad: tocco = azione, tenuto premuto = cancella ----------

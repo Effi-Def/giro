@@ -33,7 +33,7 @@ function build(){
  const cats=[...new Set(SOUNDS.map(s=>s.cat))];
  $("#sounds").innerHTML=cats.map(c=>`<div class="cat"><span class="catn">${c}</span><div class="tiles">${
   SOUNDS.map((s,i)=>s.cat===c?`<button class="snd" data-s="${i}">${s.name}</button>`:"").join("")}</div></div>`).join("");
- $$(".snd").forEach(b=>b.onclick=()=>{const i=+b.dataset.s;if(i===SET.sound)preview(i);else setSound(i)});
+ $$(".snd").forEach(b=>b.onclick=()=>setSound(+b.dataset.s));
  $("#drumKeys").innerHTML=DRUM_KEYS.map((n,k)=>`<span class="dk ${[1,3,6,8,10].includes(k)?"bk":""}"><b>${["Do","Do#","Re","Re#","Mi","Fa","Fa#","Sol","Sol#","La","La#","Si"][k]}</b>${n}</span>`).join("");
  $("#playBtn").onclick=()=>G.running?stopButton():playButton();
  $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
