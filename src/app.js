@@ -50,7 +50,7 @@ function audioDelayMs(){return((ctx.outputLatency||0)+(ctx.baseLatency||0))*1000
 
 // ---------- Stato del looper ----------
 const NL=8;
-const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,dubTake:[],cur:0,sel:0,ev:[],
+const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,dubTake:[],firstOn:[],cur:0,sel:0,ev:[],
  loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,pan:0,fx:0,undo:0,redo:0}))};
 const anyHas=()=>G.loops.some(l=>l.has||l.state==="rec"||l.state==="closing");
 function Q(){let q=G.base,k=0;while(q/2>=sr*.9&&k<3){q/=2;k++}return Math.round(q)}
@@ -61,6 +61,21 @@ function rotateBus(){G.cur=(G.cur+1)%3}
 // Mentre suoni senti le note subito; nel loop viene scritta la versione rimessa a tempo sulla griglia.
 const QNAMES={0:"NO",2:"1/8",4:"1/16"};
 function beatsFor(len){const secs=len/sr;let n=1;while(60*n/secs<70)n*=2;return n}
+// Primo giro: la registrazione parte dalla prima nota, ma la prima nota non è sempre sull'1. Nel reggae
+// cade sul levare, nel funk spesso sul "e", a volte c'è un'anacrusi prima dell'1; il pad invece si ripreme
+// sull'1. Se la lunghezza fosse "prima nota → pad", il giro verrebbe corto o lungo di un pezzo di battito
+// e tutto (tempo, griglia, quantizzazione) si sfaserebbe. Provo a mettere la prima nota d sedicesimi
+// dopo (o prima) dell'1, con d tra -3 e +3: la prima nota resta il riferimento esatto (1 = a - d·T) e il
+// pad dà la lunghezza (f = 1 + N·T, quindi T = (f-a)/(N-d)). Vince l'ipotesi in cui le altre note cadono
+// meglio sui sedicesimi; d = 0 (il comportamento di sempre) a meno che un'altra sia chiaramente migliore.
+function fitFirst(a,f,ons){
+ const hyp=d=>{for(let N=1;N<=64;N*=2){if(N<=d)continue;const T=(f-a)/(N-d),b=60*sr/T;if(b>=70&&b<140)return{N,T}}return null};
+ const score=d=>{const h=hyp(d);if(!h)return null;const D0=a-d*h.T,s=h.T/4;let e=0;
+  for(const o of ons){const x=(o-D0)/s;e+=(x-Math.round(x))**2}return{d,N:h.N,T:h.T,D0,err:ons.length?e/ons.length:0}};
+ let best=score(0);
+ if(ons.length>=3)for(const d of [-.75,-.5,-.25,.25,.5,.75]){const s=score(d);
+  if(s&&s.err+.005*Math.abs(d)*4<best.err-.02)best=s}
+ return{len:Math.round(best.N*best.T),origin:Math.round(best.D0),beats:best.N}}
 const bpm=()=>G.base?60*G.beats/(G.base/sr):0;
 function gridF(q){return G.base/(G.beats*q)}
 function qIndex(ev,L){const g=gridF(ev.q),rel=ev.on-ev.comp-G.origin,q=Math.round(rel/g)*g;
@@ -68,8 +83,8 @@ function qIndex(ev,L){const g=gridF(ev.q),rel=ev.on-ev.comp-G.origin,q=Math.roun
 // Il tempo del primo giro è ambiguo: 2 battiti a 75 bpm o 4 a 150? beatsFor sceglie 70–140 bpm, e sopra i 140
 // la griglia diventerebbe larga il doppio: con 1/8 i levare finirebbero sul battere precedente. Se nelle note di
 // una ripresa almeno 3 su 10 cadono a 1/4 o 3/4 del battito stimato, sono ottavi in levare di un tempo doppio:
-// raddoppio i battiti (finché il tempo resta entro i 200 bpm). Male che vada la griglia diventa più fine, mai più larga.
-function checkDouble(evs){if(!G.base||!evs.length||60*G.beats*2/(G.base/sr)>200)return;
+// raddoppio i battiti (finché il tempo resta entro i 180 bpm: oltre, sedicesimi funk a 100 sembrerebbero ottavi a 200). Male che vada la griglia diventa più fine, mai più larga.
+function checkDouble(evs){if(!G.base||!evs.length||60*G.beats*2/(G.base/sr)>180)return;
  const b=G.base/G.beats;let c=0;
  for(const e of evs){const f=((((e.on-e.comp-G.origin)/b)%1)+1)%1;if(Math.abs(f-.25)<.09||Math.abs(f-.75)<.09)c++}
  if(c>=1&&c/evs.length>=.3){G.beats*=2;render()}}
@@ -109,15 +124,18 @@ function tap(i){
  render()}
 
 function beginRec(i){const L=G.loops[i],f=nowF();
- if(L.first){G.running=false;send({type:"rec",i,bus:G.cur,start:f,comp:0})}
+ if(L.first){G.running=false;G.firstOn=[];send({type:"rec",i,bus:G.cur,start:f,comp:0})}
  else{if(!G.running)playAll(f);send({type:"rec",i,bus:G.cur,start:f,comp:latencyFrames()})}
  L.start=f;L.state="rec";L.sound=SET.sound;L.q=SET.quant;render()}
 
 function close(i){const L=G.loops[i],f=nowF();
- if(L.first){const len=f-L.start;
-  if(len<sr*.25){send({type:"cancelRec",i});L.state="empty";flashHint("Troppo corto: tieni il primo giro almeno un quarto di secondo.");return}
-  G.base=len;G.beats=beatsFor(len);G.origin=L.start;L.len=len;L.t0=L.start;
-  send({type:"recEnd",i,end:f,len,t0:L.start});if(L.q)renderRec(i);send({type:"gate",i,on:1,frame:f});
+ if(L.first){
+  if(f-L.start<sr*.25){send({type:"cancelRec",i});L.state="empty";flashHint("Troppo corto: tieni il primo giro almeno un quarto di secondo.");return}
+  const fit=fitFirst(L.start,f,G.firstOn),len=fit.len;
+  G.base=len;G.beats=fit.beats;G.origin=fit.origin;L.len=len;L.t0=fit.origin;
+  send({type:"recEnd",i,end:f,len,t0:fit.origin});
+  if(L.q)renderRec(i);else checkDouble(G.firstOn.map(on=>({on,comp:0})));
+  send({type:"gate",i,on:1,frame:f});
   L.state="play";L.has=true;L.muted=false;G.running=true;rotateBus();return}
  const k=Math.max(1,Math.round((f-L.start)/G.base)),len=k*G.base,end=Math.max(L.start+len,f);
  L.len=len;L.t0=L.start;L.end=end;L.has=true;L.muted=false;
@@ -236,6 +254,7 @@ function noteOn(note,vel){if(!ready)return;
  if(held.has(note))noteOff(note,true);
  const a=G.loops.findIndex(L=>L.state==="armed");if(a>=0)beginRec(a);
  const ti=G.loops.findIndex(L=>L.state==="rec"||L.state==="closing"),di=G.loops.findIndex(L=>L.state==="dub"),i=ti>=0?ti:di;
+ if(ti>=0&&G.loops[ti].first)G.firstOn.push(nowF()); // attacchi del primo giro: servono a capire dov'è l'1 (fitFirst)
  // il modo (suddivisione, 0 = spenta) lo decide L.q, fissato quando parte la registrazione o la sovraincisione
  let ev=null;
  if(i>=0&&G.loops[i].q&&BUF[SOUNDS[SET.sound].id]){const L=G.loops[i];
