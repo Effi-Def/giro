@@ -43,6 +43,7 @@ function build(){
  const db=$("#dropBtn");db.addEventListener("pointerdown",e=>{e.preventDefault();playDown(true)});
  ["pointerup","pointerleave","pointercancel"].forEach(ev=>db.addEventListener(ev,playUp));
  $("#knobBtn").onclick=cycleKnobMode;
+ $("#djBar").innerHTML=DJ_NAMES.map((n,i)=>`<div class="dj${i===0?" c":""}"><span><b>${i+1}</b> ${n}</span><i><u></u></i><small></small></div>`).join("");
  $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
  $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
@@ -83,6 +84,11 @@ function render(){
   if(knobMode==="pan"){l=(L.pan+1)*50-4;w=8}else if(knobMode==="fx"){l=Math.min(50,50+L.fx*50);w=Math.max(1,Math.abs(L.fx)*50)}
   vi.style.left=Math.max(0,l)+"%";vi.style.width=Math.min(w,100-Math.max(0,l))+"%"});
  $("#knobBtn").innerHTML=`MANOPOLE <b>${KNOB_NAMES[knobMode]}</b>`;
+ // effetti DJ: la striscia si vede solo in quel modo; il filtro parte dal centro
+ $("#djBar").hidden=knobMode!=="dj";
+ [...$("#djBar").children].forEach((el,i)=>{const a=DJV[i],u=el.querySelector("u");
+  if(i===0){u.style.left=Math.min(50,50+a*50)+"%";u.style.width=Math.abs(a)*50+"%"}else{u.style.left="0";u.style.width=a*100+"%"}
+  el.classList.toggle("on",i===0?a!==0:i===6?rollK>0:i===7?a<.98:a>.02);el.querySelector("small").textContent=djText(i)});
  $$(".snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||""):""});

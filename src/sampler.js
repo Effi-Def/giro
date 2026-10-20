@@ -19,11 +19,11 @@ function loadSound(i){const s=SOUNDS[i];if(BUF[s.id])return Promise.resolve();if
 function preloadAll(){let p=Promise.resolve();SOUNDS.forEach((_,i)=>{p=p.then(()=>loadSound(i)).catch(()=>{})})}
 
 let openHat=null;
-function voice(i,note,vel,when,bus){
+function voice(i,note,vel,when,bus,g=1){ // g: volume della tastiera (effetto DJ 8)
  const s=SOUNDS[i],list=BUF[s.id];
  if(!list){loadSound(i);return{release(){}}}
  const amp=ctx.createGain(),src=ctx.createBufferSource();
- const level=s.gain*Math.pow(.2+.8*vel,1.4);
+ const level=s.gain*Math.pow(.2+.8*vel,1.4)*g;
  if(s.drum){const k=((note%12)+12)%12,e=list.find(x=>x[0]===k);if(!e)return{release(){}};
   src.buffer=e[1];amp.gain.value=level;src.connect(amp);amp.connect(bus);src.start(when);
   if(k===6||k===8){if(openHat){try{openHat.gain.setTargetAtTime(0,when,.01)}catch(_){}openHat=null}}
@@ -42,8 +42,8 @@ function voice(i,note,vel,when,bus){
   amp.gain.setTargetAtTime(0,t,(s.rel||.2)/3);src.stop(t+(s.rel||.2)*2.5+.05)}}}
 
 // Ricostruisce una nota come la suonerebbe voice(): serve per scrivere nel loop la versione quantizzata
-function renderNote(si,note,vel,dur){const s=SOUNDS[si],list=BUF[s.id];if(!list)return null;
- const level=s.gain*Math.pow(.2+.8*vel,1.4);
+function renderNote(si,note,vel,dur,g=1){const s=SOUNDS[si],list=BUF[s.id];if(!list)return null;
+ const level=s.gain*Math.pow(.2+.8*vel,1.4)*g;
  const mono=b=>{if(b._mono)return b._mono;const n=b.numberOfChannels,m=new Float32Array(b.length);
   for(let c=0;c<n;c++){const d=b.getChannelData(c);for(let k=0;k<m.length;k++)m[k]+=d[k]/n}return b._mono=m};
  if(s.drum){const k=((note%12)+12)%12,e=list.find(x=>x[0]===k);if(!e)return null;

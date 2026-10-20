@@ -72,6 +72,18 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 .dk{font:12px var(--f-body);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:4px 7px;display:flex;gap:5px}
 .dk.bk{background:#0b0d10}
 .dk b{font:600 11px var(--f-mono);color:var(--sel)}
+.mid{display:flex;flex-direction:column;gap:8px;min-width:0}
+.djbar{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+.dj{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.dj span{font:600 13px/1 var(--f-display);letter-spacing:.06em;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dj span b{color:var(--ink)}
+.dj i{position:relative;height:5px;background:var(--panel2);border-radius:3px;overflow:hidden}
+.dj i u{position:absolute;top:0;bottom:0;background:var(--sel);text-decoration:none}
+.dj.c i::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--faint)}
+.dj small{font:11px var(--f-mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dj.on{border-color:color-mix(in srgb,var(--sel) 55%,var(--line))}
+.dj.on small{color:var(--sel)}
+@media (max-width:760px){.djbar{grid-template-columns:repeat(4,minmax(0,1fr))}}
 .hint{--hc:var(--faint);background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--hc);border-radius:9px;padding:10px 16px;min-height:50px;display:flex;align-items:center}
 .hint[data-c="rec"]{--hc:var(--rec)}.hint[data-c="arm"]{--hc:var(--arm)}.hint[data-c="dub"]{--hc:var(--dub)}.hint[data-c="play"]{--hc:var(--play)}.hint[data-c="sel"]{--hc:var(--sel)}
 #hint{font:500 clamp(15px,1.5vw,19px)/1.3 var(--f-body)}
@@ -167,7 +179,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     <div class="drumkeys" id="drumKeys" hidden></div>
   </section>
 
-  <div class="hint" id="hintBox"><div id="hint"></div></div>
+  <div class="mid">
+    <div class="hint" id="hintBox"><div id="hint"></div></div>
+    <div class="djbar" id="djBar" hidden aria-label="Effetti DJ sulle manopole"></div>
+  </div>
 
   <main class="grid" id="grid"></main>
 
@@ -180,7 +195,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     <span><b>■</b> fine a tempo · tenuto: cancella tutto</span>
     <span><b>▲ ▼</b> famiglia · <b>centrale</b> suono</span>
     <span><b>◀ ▶</b> annulla / ripeti</span>
-        <span><b>Manopole 1–8</b> volume / pan / filtro (pulsante dei modi)</span>
+        <span><b>Manopole 1–8</b> volume / pan / effetti DJ (LED spenti)</span>
   </div>
 </div>
 
@@ -212,7 +227,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>▲ ▼</td><td>Cambia famiglia di suoni (riprende l'ultimo suono usato in quella famiglia).</td></tr>
         <tr><td>Tasto centrale</td><td>Suono successivo nella stessa famiglia.</td></tr>
         <tr><td>Quantizza</td><td>Le note registrate vengono rimesse a tempo sulla griglia (1/16 o 1/8). Il primo loop decide il tempo: dura quanto vuoi, la griglia lo divide in parti uguali. Funziona con i suoni di Giro, non con un microfono.</td></tr>
-        <tr><td>Manopole 1–8</td><td>Volume, pan o filtro dei loop 1–8, secondo il pulsante dei modi accanto alle manopole: LED <b>Volume</b> = volume, <b>Pan</b> = sinistra/destra, <b>Inst/FX</b> = filtro (a sinistra più scuro, a destra più leggero, al centro niente), tutti spenti (modo MIDI) = volume. Il modo si vede in alto (MANOPOLE …) e si può cambiare anche con un clic lì.</td></tr>
+        <tr><td>Manopole 1–8</td><td>Secondo il pulsante dei modi accanto alle manopole: LED <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, tutti <b>spenti</b> (modo MIDI) = <b>effetti DJ su tutto il mix</b>: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco a tempo · 3 riverbero · 4 flanger · 5 crusher · 6 trance gate a tempo · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera. Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Il modo si vede in alto (MANOPOLE …) e si cambia anche con un clic lì.</td></tr>
       </table>
       <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX: cambia solo cosa fanno le manopole. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
       <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>Spazio</kbd> play/stop · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>

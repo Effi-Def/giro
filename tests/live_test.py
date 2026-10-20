@@ -45,8 +45,18 @@ async def main():
           hc(58,127);hc(58,0);res.hcVol=knobMode;hc(58,127);hc(58,0);res.hcPan=knobMode;hc(33,0);res.pan0=G.loops[0].pan;
           hc(59,127);hc(59,0);res.hcFx=knobMode;hc(34,127);res.fx1=G.loops[1].fx;
           res.fxBar=document.querySelector('.loop[data-loop="1"] .vol').classList.contains('fx');
-          hc(60,127);hc(60,0);res.hcMidi=knobMode;cc(1,64);res.vol0=Math.abs(G.loops[0].vol-64/127)<1e-6;
+          hc(60,127);hc(60,0);res.hcMidi=knobMode;
           res.knobLabel=document.querySelector('#knobBtn').textContent;
+          // modo MIDI (LED spenti): manopole CC 1–8 = effetti DJ sul mix
+          const v0=G.loops[0].vol;cc(1,0);cc(2,127);cc(4,127);cc(5,127);cc(6,127);cc(7,60);cc(8,64);await wait(400);
+          res.djBar=!document.querySelector('#djBar').hidden;res.djVolUntouched=G.loops[0].vol===v0;
+          res.djFilter=DJ.lp.frequency.value<1000;res.djEcho=DJ.eWet.gain.value>.4&&DJ.eFb.gain.value>.5;
+          res.djFlanger=DJ.flWet.gain.value>.5;res.djCrush=!!DJ.crush.curve;res.djGate=!!DJ.gateOsc;
+          res.djRoll=rollK===2;res.djLive=Math.abs(DJV[7]-64/127)<1e-6;
+          await wait(Math.round(G.base/G.beats/2/sr*1000)*2+150);res.djRollOn=DJ.rWet.gain.value===1&&DJ.rDry.gain.value===0;
+          // tutto spento di nuovo: il suono torna com'era
+          cc(1,64);cc(2,0);cc(4,0);cc(5,0);cc(6,0);cc(7,0);cc(8,127);await wait(400);
+          res.djOff=DJ.lp.frequency.value>15000&&DJ.hp.frequency.value<20&&DJ.eWet.gain.value<.01&&DJ.flWet.gain.value<.01&&!DJ.crush.curve&&!DJ.gateOsc&&rollK===0&&DJ.rDry.gain.value===1&&DJ.rWet.gain.value===0&&DJV[7]===1;
           const s0=SET.sound;hc(98,127);hc(98,0);res.hcCenter=SET.sound!==s0;
           onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad=!!G.loops[0].pend;
           onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad2=!G.loops[0].pend;
@@ -70,7 +80,7 @@ async def main():
           cc(16,127);await wait(200);cc(16,0);await wait(2200);res.shortKeeps=anyHas();
           return res}''')
         print(json.dumps(r,indent=1));print('errori',errs)
-        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'vol','vol0':True,'knobLabel':'MANOPOLE VOLUME','hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
+        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'MANOPOLE EFFETTI DJ','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djFlanger':True,'djCrush':True,'djGate':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
              'stopAtBoundary':True,'stillRunning':True,'label':'■ SUBITO','stoppedAfter':True,'immediate':True,'notYet':True,'cleared':True,'shortKeeps':True}
         bad={k:(r.get(k),v) for k,v in exp.items() if r.get(k)!=v}
         assert not bad and not errs,bad
