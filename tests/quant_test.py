@@ -129,9 +129,11 @@ async def main():
             while(pos()>.1)await wait(2);tap(1);await wait(5);
             for(const t of plan){while(pos()<t)await wait(1);noteOn(60,.8);await wait(80);noteOff(60)}
             while(pos()<3.9)await wait(2);while(pos()>.5)await wait(1);tap(1);await wait(4*beat*1000+300);
-            const L1=G.loops[1],fill=sent.filter(c=>c.type==="fill"&&c.i===1).pop(),o=fill?on(fill.data):[];
+            // il loop è un anello: cerco gli attacchi su due giri attaccati, così vedo anche quelli all'indice 0
+            const onC=d=>{const x=new Float32Array(d.length*2);x.set(d);x.set(d,d.length);return on(x).filter(k=>k>=d.length&&k<2*d.length).map(k=>k-d.length)};
+            const L1=G.loops[1],fill=sent.filter(c=>c.type==="fill"&&c.i===1).pop(),o=fill?onC(fill.data):[];
             // riferimento: dove l'analisi trova la cassa sull'1 del loop 1 (l'attacco del campione non è istantaneo)
-            const f0=sent.filter(c=>c.type==="fill"&&c.i===0).pop(),ref=f0?on(f0.data)[0]/sr/beat:0;
+            const f0=sent.filter(c=>c.type==="fill"&&c.i===0).pop(),ref=f0?onC(f0.data)[0]/sr/beat:0;
             const ps=o.map(k=>((((k+L1.t0-L0.t0)/sr/beat-ref)%4)+4)%4).sort((x,y)=>x-y);
             res[name]={len:+(L1.len/sr/beat).toFixed(2),pos:ps.map(x=>+x.toFixed(2))};
             await wait(300)}
