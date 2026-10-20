@@ -61,21 +61,9 @@ function rotateBus(){G.cur=(G.cur+1)%3}
 // Mentre suoni senti le note subito; nel loop viene scritta la versione rimessa a tempo sulla griglia.
 const QNAMES={0:"NO",2:"1/8",4:"1/16"};
 function beatsFor(len){const secs=len/sr;let n=1;while(60*n/secs<70)n*=2;return n}
-// Primo giro: la registrazione parte dalla prima nota, ma la prima nota non è sempre sull'1. Nel reggae
-// cade sul levare, nel funk spesso sul "e", a volte c'è un'anacrusi prima dell'1; il pad invece si ripreme
-// sull'1. Se la lunghezza fosse "prima nota → pad", il giro verrebbe corto o lungo di un pezzo di battito
-// e tutto (tempo, griglia, quantizzazione) si sfaserebbe. Provo a mettere la prima nota d sedicesimi
-// dopo (o prima) dell'1, con d tra -3 e +3: la prima nota resta il riferimento esatto (1 = a - d·T) e il
-// pad dà la lunghezza (f = 1 + N·T, quindi T = (f-a)/(N-d)). Vince l'ipotesi in cui le altre note cadono
-// meglio sui sedicesimi; d = 0 (il comportamento di sempre) a meno che un'altra sia chiaramente migliore.
-function fitFirst(a,f,ons){
- const hyp=d=>{for(let N=1;N<=64;N*=2){if(N<=d)continue;const T=(f-a)/(N-d),b=60*sr/T;if(b>=70&&b<140)return{N,T}}return null};
- const score=d=>{const h=hyp(d);if(!h)return null;const D0=a-d*h.T,s=h.T/4;let e=0;
-  for(const o of ons){const x=(o-D0)/s;e+=(x-Math.round(x))**2}return{d,N:h.N,T:h.T,D0,err:ons.length?e/ons.length:0}};
- let best=score(0);
- if(ons.length>=3)for(const d of [-.75,-.5,-.25,.25,.5,.75]){const s=score(d);
-  if(s&&s.err+.005*Math.abs(d)*4<best.err-.02)best=s}
- return{len:Math.round(best.N*best.T),origin:Math.round(best.D0),beats:best.N}}
+// Il primo giro va dalla prima nota alla ripressione del pad: la prima nota è l'1. Indovinare dalle note se
+// invece si è partiti in levare non è affidabile (con le imprecisioni di chi suona sbagliava 1 volta su 3 e
+// spostava tutto in levare), quindi un giro che deve cominciare in levare si costruisce dal secondo loop.
 const bpm=()=>G.base?60*G.beats/(G.base/sr):0;
 function gridF(q){return G.base/(G.beats*q)}
 function qIndex(ev,L){const g=gridF(ev.q),rel=ev.on-ev.comp-G.origin,q=Math.round(rel/g)*g;
@@ -131,9 +119,10 @@ function beginRec(i){const L=G.loops[i],f=nowF();
 function close(i){const L=G.loops[i],f=nowF();
  if(L.first){
   if(f-L.start<sr*.25){send({type:"cancelRec",i});L.state="empty";flashHint("Troppo corto: tieni il primo giro almeno un quarto di secondo.");return}
-  const fit=fitFirst(L.start,f,G.firstOn),len=fit.len;
-  G.base=len;G.beats=fit.beats;G.origin=fit.origin;L.len=len;L.t0=fit.origin;
-  send({type:"recEnd",i,end:f,len,t0:fit.origin});
+  const len=f-L.start;
+  G.base=len;G.beats=beatsFor(len);G.origin=L.start;L.len=len;L.t0=L.start;
+  send({type:"recEnd",i,end:f,len,t0:L.start});
+  // anche registrato senza quantizzazione, il primo giro decide se il tempo vero è il doppio (sopra i 140)
   if(L.q)renderRec(i);else checkDouble(G.firstOn.map(on=>({on,comp:0})));
   send({type:"gate",i,on:1,frame:f});
   L.state="play";L.has=true;L.muted=false;G.running=true;rotateBus();return}
@@ -254,7 +243,7 @@ function noteOn(note,vel){if(!ready)return;
  if(held.has(note))noteOff(note,true);
  const a=G.loops.findIndex(L=>L.state==="armed");if(a>=0)beginRec(a);
  const ti=G.loops.findIndex(L=>L.state==="rec"||L.state==="closing"),di=G.loops.findIndex(L=>L.state==="dub"),i=ti>=0?ti:di;
- if(ti>=0&&G.loops[ti].first)G.firstOn.push(nowF()); // attacchi del primo giro: servono a capire dov'è l'1 (fitFirst)
+ if(ti>=0&&G.loops[ti].first)G.firstOn.push(nowF()); // attacchi del primo giro: servono a checkDouble anche senza quantizzazione
  // il modo (suddivisione, 0 = spenta) lo decide L.q, fissato quando parte la registrazione o la sovraincisione
  let ev=null;
  if(i>=0&&G.loops[i].q&&BUF[SOUNDS[SET.sound].id]){const L=G.loops[i];

@@ -109,28 +109,36 @@ async def main():
         near=lambda a,b:a is not None and len(a)==len(b) and all(abs(x-y)<.06 for x,y in zip(a,b))
         assert abs(r3['firstBpm']-150)<=4 and near(r3['first'],[0,1.5,2,3.5]),r3
         assert near([r3['dub']],[1.5]) and abs(r3['dubBpm']-150)<=4,r3
-        # primo giro che non parte sull'1: reggae (prima nota sul levare) e funk (prima nota sul "e");
-        # il pad si ripreme sull'1 dopo una battuta. Il giro deve durare 4 battiti e le note restare al loro posto.
+        # reggae e funk: primo loop sull'1 (cassa sui battiti), poi un secondo loop che comincia in levare
+        # (reggae sul "e" di ogni battito, funk sul "e" del primo sedicesimo). Il pad si ripreme sull'1:
+        # il loop 2 deve durare una battuta e le note restare in levare, non finire sul battere.
         r4=await pg.evaluate('''async()=>{
           const sent=[];const _s=send;send=c=>{sent.push(c);_s(c)};
           const wait=ms=>new Promise(r=>setTimeout(r,ms));
-          const at=async(sec,t0)=>{while((ctx.currentTime-t0)<sec)await wait(1)};
           const on=(d)=>{const W=Math.round(sr*.004),e=[];for(let k=0;k+W<=d.length;k+=W){let s=0;for(let j=k;j<k+W;j++)s+=d[j]*d[j];e.push(Math.sqrt(s/W))}
             const o=[];let last=-1;for(let w=1;w<e.length;w++){const prev=Math.max(e[w-1],e[w-2]||0,.002);if(e[w]>prev*2.2&&e[w]>.03&&(last<0||w-last>20)){o.push(w*W);last=w}}return o};
           const res={};
           for(const [name,tempo,q,plan] of [["reggae",75,2,[.5,1.5,2.5,3.5]],["funk",100,4,[.25,.75,1.5,2.25,2.75,3.5]]]){
             clearAll();await wait(100);SET.quant=q;setSound(0);const beat=60/tempo;
-            tap(0);await wait(30);const T=ctx.currentTime-plan[0]*beat+.05;
-            for(const t of plan){await at(t*beat+.05,T);noteOn(60,.8);await wait(80);noteOff(60)}
-            await at(4*beat+.065,T);tap(0);
-            const fill=sent.filter(c=>c.type==="fill"&&c.i===0).pop(),L=G.loops[0],o=fill?on(fill.data):[];
-            const pos=o.map(k=>((k/sr+L.t0/sr-T)/beat%4+4)%4).sort((x,y)=>x-y);
-            res[name]={bpm:Math.round(bpm()),len:+(L.len/sr/beat).toFixed(3),gaps:pos.slice(1).map((x,j)=>+(x-pos[j]).toFixed(2))};
-            await wait(500)} // lascia arrivare i messaggi del core prima di cancellare tutto
+            // loop 1: quattro note sui battiti, pad ripremuto sull'1
+            tap(0);await wait(30);const T=ctx.currentTime;
+            for(let b=0;b<4;b++){while(ctx.currentTime-T<b*beat)await wait(1);noteOn(48,.8);await wait(80);noteOff(48)}
+            while(ctx.currentTime-T<4*beat)await wait(1);tap(0);
+            const L0=G.loops[0],pos=()=>((((nowF()-L0.t0)%L0.len)+L0.len)%L0.len)/sr/beat;
+            // loop 2: pad premuto vicino all'1, prima nota in levare
+            while(pos()>.1)await wait(2);tap(1);await wait(5);
+            for(const t of plan){while(pos()<t)await wait(1);noteOn(60,.8);await wait(80);noteOff(60)}
+            while(pos()<3.9)await wait(2);while(pos()>.5)await wait(1);tap(1);await wait(4*beat*1000+300);
+            const L1=G.loops[1],fill=sent.filter(c=>c.type==="fill"&&c.i===1).pop(),o=fill?on(fill.data):[];
+            // riferimento: dove l'analisi trova la cassa sull'1 del loop 1 (l'attacco del campione non è istantaneo)
+            const f0=sent.filter(c=>c.type==="fill"&&c.i===0).pop(),ref=f0?on(f0.data)[0]/sr/beat:0;
+            const ps=o.map(k=>((((k+L1.t0-L0.t0)/sr/beat-ref)%4)+4)%4).sort((x,y)=>x-y);
+            res[name]={len:+(L1.len/sr/beat).toFixed(2),pos:ps.map(x=>+x.toFixed(2))};
+            await wait(300)}
           send=_s;return res}''')
         print(json.dumps(r4))
-        for name,tempo,gaps in [('reggae',75,[1,1,1]),('funk',100,[.5,.75,.75,.5,.75])]:
-            x=r4[name];assert abs(x['bpm']-tempo)<=3 and abs(x['len']-4)<.06 and near(x['gaps'],gaps),(name,x)
+        for name,pos in [('reggae',[.5,1.5,2.5,3.5]),('funk',[.25,.75,1.5,2.25,2.75,3.5])]:
+            x=r4[name];assert abs(x['len']-4)<.06 and near(x['pos'],pos),(name,x)
         assert r2['recRouted']=='quant' and r2['recFill'] and len(r2['recFill'])==2,r2
         await pg.screenshot(path=str(Path(__file__).resolve().parent/'g7.png'))
         print('errori',errs)
