@@ -37,7 +37,7 @@ Dopo ogni modifica: `python tools/build.py`, poi i test.
 
 **Effetti DJ (`buildDJ` in `app.js`).** Catena di nodi nativi inserita fra `masterIn` e il filtro generale `cutF`: crusher (WaveShaper, curva a gradini, `null` = spento) → filtro DJ (passa-basso + passa-alto) → flanger (ritardo modulato) → trance gate (onda quadra a tempo, ammorbidita, sul guadagno) → roll (linea di ritardo lunga un pezzo a tempo che si richiude: lascia passare un pezzo registrandolo e poi lo ripete) → eco (mandata, 3/16 a tempo). Il riverbero DJ si somma al riverbero delle impostazioni (`applyMix`). Il volume della tastiera (`DJV[7]`) moltiplica il livello in `voice()` e `renderNote()` (salvato nella nota, `ev.lv`). Eco, gate e roll seguono il tempo: `djRetime()` va richiamato quando cambiano tempo o 1 (chiusura del primo giro, `playAll`, `checkDouble`, `clearAll`). A manopole spente la catena è trasparente.
 
-**LoopCore (`core.js`).** Classe autonoma, lavora in frame audio assoluti. Ogni loop è un buffer mono riprodotto all'indice `(F - t0) mod len`; l'uscita è stereo (`process(ins,out,F0,n,outR)`, senza `outR` resta mono come nei test) con pan per loop (legge di bilanciamento: al centro il livello non cambia) e un filtro SVF per loop sull'uscita (`fx` −1…1: passa-basso 20 kHz→150 Hz, passa-alto 20 Hz→6 kHz, zona morta al centro), smussati a ~30 ms. Riceve comandi via `port.postMessage`: `rec`, `recEnd`, `cancelRec`, `dub`, `undub`, `gate` (play/stop a un frame preciso), `vol`, `pan`, `fx`, `shift`, `clear`, `undo`, `redo`, `reset`, `fill`, `pend`. Manda indietro `state`, `peaks`, `done`. Ha annulla/ripeti per strato. Il codice della classe viene serializzato con `LoopCore.toString()` e caricato nel worklet: **non deve dipendere da nient'altro**.
+**LoopCore (`core.js`).** Classe autonoma, lavora in frame audio assoluti. Ogni loop è un buffer mono riprodotto all'indice `(F - t0) mod len`; l'uscita è stereo (`process(ins,out,F0,n,outR)`, senza `outR` resta mono come nei test) con pan per loop (legge di bilanciamento: al centro il livello non cambia) e un filtro SVF per loop sull'uscita (`fx` −1…1: passa-basso 20 kHz→150 Hz, passa-alto 20 Hz→6 kHz, zona morta al centro), smussati a ~30 ms. Riceve comandi via `port.postMessage`: `rec`, `recEnd`, `cancelRec`, `dub`, `undub`, `gate` (play/stop a un frame preciso), `vol`, `pan`, `fx`, `shift`, `clear`, `undo`, `redo`, `reset`, `fill`, `pend`, `dump`, `load`. Manda indietro `state`, `peaks`, `done`. Ha annulla/ripeti per strato. Il codice della classe viene serializzato con `LoopCore.toString()` e caricato nel worklet: **non deve dipendere da nient'altro**.
 
 **Worklet da file locale.** Chrome rifiuta `addModule` con URL `blob:` quando la pagina è aperta da `file://`; si usa un URL `data:` e, se fallisce, `blob:`. Se l'AudioWorklet non parte, c'è il ripiego su ScriptProcessor con lo stesso LoopCore (più latenza).
 
@@ -59,6 +59,8 @@ Dopo ogni modifica: `python tools/build.py`, poi i test.
 Il modo (suddivisione o spenta) si fissa in `L.q` quando parte la registrazione o la sovraincisione (●): cambiare Q a metà vale dalla ripresa successiva. Regola: una nota va su `masterIn` solo se è annotata in `G.ev`, altrimenti va su `liveBus[G.cur]`.
 
 Si quantizza solo l'attacco, non la durata. La griglia è relativa a `G.origin` e divide `G.base` in `G.beats × suddivisione` parti. Limite noto: presume 4/4.
+
+**Sessione (`app.js`).** I loop pieni si salvano da soli in IndexedDB (db `giro`, chiave `s`) 2,5 s dopo l'ultima modifica (`saveSoon` → `dump` al core → `onDump`). All'avvio `restoreSession` li rimette fermi con `load` (stessa frequenza di campionamento, altrimenti ignora) e ▶ li fa partire; `clearAll` svuota anche il salvataggio. Non si salvano annulla/ripeti né il mute. Test: `tests/session_test.py` (usa Chrome installato, `channel='chrome'`).
 
 ## Suoni
 
@@ -120,6 +122,6 @@ Nel container il Chromium di Playwright è già installato; avvialo con `--autop
 
 ## Possibili prossimi passi (non ancora richiesti)
 
-- Salvare la sessione (i loop audio) in IndexedDB.
+- Esportare il mix in WAV; metronomo opzionale.
 - Campioni di qualità più alta per pianoforte e Rhodes (es. Splendid Grand Piano su smpldsnds).
 - Supporto a tempi dispari per la quantizzazione.

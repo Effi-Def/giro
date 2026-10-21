@@ -35,7 +35,7 @@ registerProcessor("giro-looper",GiroLooper);`;
  }
  node.connect(masterIn);
  applyMix();ready=true;
- loadSound(SET.sound).then(preloadAll,preloadAll);
+ loadSound(SET.sound).then(preloadAll,preloadAll);restoreSession();
  setInterval(tick,20);
 }
 function send(c){if(!ready)return;if(usingWorklet)node.port.postMessage(c);else core.cmd(c)}
@@ -238,7 +238,7 @@ function stopPress(){clearTimeout(stopHold);
  stopHold=setTimeout(()=>{if(!anyHas())return;flashHint("Continua a tenere premuto per <b>cancellare tutto</b>…");
   stopHold=setTimeout(()=>{stopHold=0;if(anyHas())clearAll()},1500)},500)}
 function stopRelease(){clearTimeout(stopHold);stopHold=0}
-function clearAll(){send({type:"reset"});G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();djRoll(0);djRetime();G.ev=[];
+function clearAll(){send({type:"reset"});saveSoon();G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();djRoll(0);djRetime();G.ev=[];
  G.loops.forEach(L=>Object.assign(L,{state:"empty",has:false,muted:false,pend:null,dropped:false,peaks:null,undo:0,redo:0}));flashHint("Tutto cancellato. Il prossimo giro lo decidi tu.")}
 function playButton(){if(!ready)return;if(!G.base){flashHint(START_HINT);return}
  if(G.running){flashHint("Sta già suonando. <b>■</b> per fermare a fine giro.");return}playAll()}
@@ -286,9 +286,37 @@ function undoSel(redo){if(!ready)return;const i=G.sel,L=G.loops[i];
  if(redo?!L.redo:!L.undo){flashHint(redo?"Niente da ripetere.":"Niente da annullare sul loop "+(i+1)+".");return}
  send({type:redo?"redo":"undo",i});flashHint((redo?"Ripristinato":"Annullato")+` l'ultimo strato del loop ${i+1}.`)}
 
-function onCoreMsg(m){const L=G.loops[m.i];if(!L)return;
- if(m.type==="peaks"){L.peaks=m.peaks;drawWave(m.i);return}
- if(m.type==="state"){L.undo=m.undo;L.redo=m.redo;
+// ---------- Sessione: salvataggio automatico dei loop in IndexedDB, ripresa all'apertura ----------
+// Si salva un attimo dopo l'ultima modifica (loop chiuso, sovraincisione, annulla, cancella, volume/pan/filtro).
+// Il core manda copie dei buffer (dump); alla ripresa i loop tornano fermi, ▶ li fa partire. Tutto in try/catch:
+// se IndexedDB non c'è, Giro funziona come prima senza salvare.
+let saveT=0,restoring=false;
+function saveSoon(){if(restoring)return;clearTimeout(saveT);saveT=setTimeout(()=>send({type:"dump"}),2500)}
+function idb(mode,fn){return new Promise((ok,ko)=>{const r=indexedDB.open("giro",1);r.onupgradeneeded=()=>r.result.createObjectStore("session");
+ r.onerror=()=>ko(r.error);r.onsuccess=()=>{const d=r.result,t=d.transaction("session",mode),q=fn(t.objectStore("session"));
+  t.oncomplete=()=>{d.close();ok(q&&q.result)};t.onerror=()=>ko(t.error)}})}
+function onDump(items){
+ if(!items.length){if(!G.loops.some(L=>L.state==="rec"||L.state==="closing")&&!anyHas())idb("readwrite",s=>s.delete("s")).catch(()=>{});return}
+ if(!G.base)return;
+ const rec={v:1,sr,base:G.base,beats:G.beats,loops:items.map(it=>{const L=G.loops[it.i];
+  return{i:it.i,len:it.len,rel:it.t0-G.origin,data:it.data,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound}})};
+ idb("readwrite",s=>s.put(rec,"s")).catch(()=>{})}
+async function restoreSession(){
+ let rec=null;try{rec=await idb("readonly",s=>s.get("s"))}catch(_){}
+ if(!rec||rec.v!==1||rec.sr!==sr||anyHas()||G.base)return;
+ restoring=true;
+ G.base=rec.base;G.beats=rec.beats;G.origin=nowF();G.running=false;
+ for(const s of rec.loops){const L=G.loops[s.i];if(!L)continue;
+  Object.assign(L,{vol:s.vol,pan:s.pan,fx:s.fx,sound:s.sound});
+  send({type:"load",i:s.i,data:s.data,len:s.len,t0:G.origin+s.rel,vol:s.vol,pan:s.pan,fx:s.fx})}
+ setTimeout(()=>{restoring=false},500);
+ flashHint("Ripresa la sessione precedente: <b>▶</b> per riascoltarla. Tieni premuto <b>■</b> per cancellare tutto.");render()}
+
+function onCoreMsg(m){
+ if(m.type==="dump")return onDump(m.items);
+ const L=G.loops[m.i];if(!L)return;
+ if(m.type==="peaks"){L.peaks=m.peaks;drawWave(m.i);saveSoon();return}
+ if(m.type==="state"){saveSoon();L.undo=m.undo;L.redo=m.redo;
   if(m.has){L.len=m.len;L.t0=m.t0;
    if(!L.has||L.state==="empty"){L.has=true;L.state="play";L.muted=false;if(!G.base){G.base=m.len;G.origin=m.t0}
     send({type:"gate",i:m.i,on:G.running?1:0,frame:nowF()})}}
@@ -373,6 +401,7 @@ function hcModeButton(cc){
  else if(cc===59){hcMode="fx";setKnobMode("fx")}
  else{hcMode="midi";setKnobMode("dj")}} // modo MIDI (LED spenti): effetti DJ
 function knob(i,v){const L=G.loops[i];if(knobMode==="dj")return djKnob(i,v);
+ if(L.has)saveSoon();
  if(knobMode==="vol"){L.vol=v/127;send({type:"vol",i,v:L.vol});render();return}
  let x=Math.max(-1,Math.min(1,(v-64)/63));if(Math.abs(x)<.03)x=0;
  if(knobMode==="pan"){L.pan=x;send({type:"pan",i,v:x});

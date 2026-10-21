@@ -24,6 +24,9 @@ class LoopCore{
  exec(c,F0){const L=c.i!=null?this.loops[c.i]:null;
   switch(c.type){
    case "reset":this.loops=this.loops.map(o=>{const n=this.fresh();n.vol=o.vol;n.pan=n.ps=o.pan;n.fx=n.fs=o.fx;return n});break;
+   // salvataggio sessione: "dump" manda copie dei buffer pieni, "load" rimette un loop salvato
+   case "dump":this.msgs.push({type:"dump",items:this.loops.map((o,i)=>o.buf?{i,len:o.len,t0:o.t0,data:o.buf.slice()}:null).filter(Boolean)});break;
+   case "load":L.buf=new Float32Array(c.data);L.len=c.len;L.t0=c.t0;L.vol=c.vol;L.pan=L.ps=c.pan;L.fx=L.fs=c.fx;L.undo=[];L.redo=[];L.g=0;L.gt=0;this.state(c.i);break;
    case "rec":L.rec={bus:c.bus,start:c.start,comp:c.comp||0,have:Math.max(c.start,F0-this.RL+1),data:new Float32Array(this.sr*8),end:null,len:0,t0:0};break;
    case "recEnd":if(L.rec){L.rec.end=c.end;L.rec.len=c.len;L.rec.t0=c.t0}break;
    case "cancelRec":L.rec=null;break;

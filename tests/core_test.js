@@ -58,3 +58,10 @@ console.log('messaggi',msgs().map(m=>m.type).join(','));
  c2.cmd({type:'pan',i:0,v:0});c2.cmd({type:'fx',i:0,v:-1});const [l2]=run2(8192);ok(l2<.01*l0,'filtro passa-basso: 2 kHz quasi spenti ('+(l2/l0).toExponential(1)+')');
  c2.cmd({type:'fx',i:0,v:0});const [l3]=run2(8192);ok(Math.abs(l3-l0)<.01*l0,'filtro al centro: suono intatto');
  c2.cmd({type:'fx',i:0,v:.5});c2.cmd({type:'reset'});run2(N);ok(c2.loops[0].fx===.5&&c2.loops[0].vol===.8,'reset conserva volume, pan e filtro')}
+// sessione: dump copia i buffer pieni, load li rimette (anche in un core nuovo)
+{const d=new LoopCore(sr);c.msgs=[];c.cmd({type:'dump'});run(F+N);
+ const dm=msgs().find(m=>m.type==='dump');
+ ok(dm&&dm.items.length>=1&&dm.items[0].data.length===dm.items[0].len,'dump: copia dei loop pieni');
+ const it=dm.items[0];d.cmd({type:'load',i:it.i,data:it.data,len:it.len,t0:it.t0,vol:.5,pan:-.3,fx:.2});d.process([null,null,null],new Float32Array(N),0,N);
+ const L=d.loops[it.i];ok(L.buf&&L.len===it.len&&L.t0===it.t0&&L.vol===.5&&L.pan===-.3&&L.buf[0]===it.data[0],'load: loop ripristinato con volume, pan e filtro');
+ it.data[0]=99;ok(c.loops[it.i].buf[0]!==99,'dump: è una copia, non il buffer vivo')}
