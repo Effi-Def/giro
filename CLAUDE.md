@@ -62,6 +62,8 @@ Si quantizza solo l'attacco, non la durata. La griglia è relativa a `G.origin` 
 
 **Sessione (`app.js`).** I loop pieni si salvano da soli in IndexedDB (db `giro`, chiave `s`) 2,5 s dopo l'ultima modifica (`saveSoon` → `dump` al core → `onDump`). All'avvio `restoreSession` li rimette fermi con `load` (stessa frequenza di campionamento, altrimenti ignora) e ▶ li fa partire; `clearAll` svuota anche il salvataggio. Non si salvano annulla/ripeti né il mute. Test: `tests/session_test.py` (usa Chrome installato, `channel='chrome'`).
 
+**Esporta WAV.** Impostazioni → SCARICA WAV (`exportWav` → `dump` → `doExport`): un nuovo `LoopCore` offline carica i loop non fermi (volume, pan, filtro per loop) e rende un giro lungo quanto il loop più lungo, stereo 16 bit, normalizzato solo se supera il fondo scala. Senza effetti DJ, riverbero e filtro generale. Test: `tests/export_test.py`.
+
 ## Suoni
 
 20 suoni, campionati, incorporati in `sounds_data.js`:
@@ -122,6 +124,6 @@ Nel container il Chromium di Playwright è già installato; avvialo con `--autop
 
 ## Possibili prossimi passi (non ancora richiesti)
 
-- Esportare il mix in WAV; metronomo opzionale.
+- Metronomo opzionale.
 - Campioni di qualità più alta per pianoforte e Rhodes (es. Splendid Grand Piano su smpldsnds).
 - Supporto a tempi dispari per la quantizzazione.
