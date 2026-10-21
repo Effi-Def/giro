@@ -2,7 +2,7 @@
 let ctx,sr,node,core=null,ready=false,masterIn,masterOut,cutF,dry,wet,noiseBuf,liveBus=[],usingWorklet=false;
 const SET={sound:0,cut:1,rev:.25,master:.9,oct:0,quant:4};
 function loadSet(){try{Object.assign(SET,JSON.parse(localStorage.getItem("giro5.set")||"{}"))}catch(_){}SET.sound=Math.min(SET.sound|0,SOUNDS.length-1);delete SET.latMs}
-function saveSet(){try{localStorage.setItem("giro5.set",JSON.stringify(SET))}catch(_){}}
+function saveSet(){SET.sid=SOUNDS[SET.sound]?.id;try{localStorage.setItem("giro5.set",JSON.stringify(SET))}catch(_){}}
 
 async function initAudio(){
  if(ctx)return;
@@ -377,7 +377,7 @@ function setSustain(on){sustain=on;if(!on)[...held.entries()].filter(([,h])=>h.s
 function setSound(i){lastInCat[SOUNDS[i].cat]=i;if(i===SET.sound)return;SET.sound=i;saveSet();if(ready)loadSound(i);render()}
 // ▲▼ saltano di famiglia (riprendendo l'ultimo suono usato lì), il tasto centrale scorre i suoni della famiglia
 const lastInCat={};
-const CATS=[...new Set(SOUNDS.map(s=>s.cat))];
+let CATS=[...new Set(SOUNDS.map(s=>s.cat))];
 function soundHint(){const s=SOUNDS[SET.sound],n=SOUNDS.filter(x=>x.cat===s.cat).length;
  flashHint(`${s.cat}: <b>${s.name}</b>`+(n>1?" · tasto centrale per gli altri suoni della famiglia":""))}
 function stepFamily(d){const c=CATS[(CATS.indexOf(SOUNDS[SET.sound].cat)+d+CATS.length)%CATS.length];

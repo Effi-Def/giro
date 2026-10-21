@@ -13,7 +13,7 @@ function makeLoop(b){const a=Math.round(1.2*b.sampleRate),e=Math.min(b.length-64
  return{start:a/b.sampleRate,end:e/b.sampleRate}}
 function loadSound(i){const s=SOUNDS[i];if(BUF[s.id])return Promise.resolve();if(loading[s.id])return loading[s.id];
  const src=SAMPLE_DATA[s.id];
- loading[s.id]=Promise.all(Object.entries(src).map(([k,v])=>ctx.decodeAudioData(b64buf(v)).then(b=>[+k,b,s.loop?makeLoop(b):null])))
+ loading[s.id]=Promise.all(Object.entries(src).map(([k,v])=>ctx.decodeAudioData(typeof v==="string"?b64buf(v):v.slice(0)).then(b=>[+k,b,s.loop?makeLoop(b):null])))
   .then(list=>{list.sort((x,y)=>x[0]-y[0]);BUF[s.id]=list;render()});
  return loading[s.id]}
 function preloadAll(){let p=Promise.resolve();SOUNDS.forEach((_,i)=>{p=p.then(()=>loadSound(i)).catch(()=>{})})}

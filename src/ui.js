@@ -13,6 +13,11 @@ function loopColor(i){const L=G.loops[i];
  if(L.state==="armed")return"arm";if(L.state==="rec"||L.state==="closing")return"rec";if(L.state==="dub")return"dub";
  if(L.state==="play")return(L.muted||!G.running)?"off":"play";return"empty"}
 
+function buildSounds(){
+ const cats=[...new Set(SOUNDS.map(s=>s.cat))];
+ $("#sounds").innerHTML=cats.map(c=>`<div class="cat"><span class="catn">${c}</span><div class="tiles">${
+  SOUNDS.map((s,i)=>s.cat===c?`<button class="snd" data-s="${i}">${s.name}</button>`:"").join("")}</div></div>`).join("");
+ $$("#sounds .snd").forEach(b=>b.onclick=()=>setSound(+b.dataset.s))}
 function build(){
  $("#grid").innerHTML=ORDER.map(i=>`
   <button class="loop" data-loop="${i}" aria-label="Loop ${i+1}">
@@ -31,10 +36,7 @@ function build(){
   ["pointerup","pointerleave","pointercancel"].forEach(ev=>b.addEventListener(ev,()=>padUp(i)));
   b.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();tap(i)}})});
  $("#keys").innerHTML=Array.from({length:61},(_,k)=>`<i data-k="${36+k}" class="${[1,3,6,8,10].includes(k%12)?"b":""}"></i>`).join("");
- const cats=[...new Set(SOUNDS.map(s=>s.cat))];
- $("#sounds").innerHTML=cats.map(c=>`<div class="cat"><span class="catn">${c}</span><div class="tiles">${
-  SOUNDS.map((s,i)=>s.cat===c?`<button class="snd" data-s="${i}">${s.name}</button>`:"").join("")}</div></div>`).join("");
- $$(".snd").forEach(b=>b.onclick=()=>setSound(+b.dataset.s));
+ buildSounds();initAddUI();
  $("#drumKeys").innerHTML=DRUM_KEYS.map((n,k)=>`<span class="dk ${[1,3,6,8,10].includes(k)?"bk":""}"><b>${["Do","Do#","Re","Re#","Mi","Fa","Fa#","Sol","Sol#","La","La#","Si"][k]}</b>${n}</span>`).join("");
  const pb=$("#playBtn"),pbAct=()=>{(G.running?stopButton:playButton)();stopPress()};
  pb.addEventListener("pointerdown",e=>{e.preventDefault();pbAct()});
@@ -90,7 +92,7 @@ function render(){
  [...$("#djBar").children].forEach((el,i)=>{const a=DJV[i],u=el.querySelector("u");
   if(i===0){u.style.left=Math.min(50,50+a*50)+"%";u.style.width=Math.abs(a)*50+"%"}else{u.style.left="0";u.style.width=a*100+"%"}
   el.classList.toggle("on",i===0?a!==0:i===6?rollK>0:i===7?a<.98:a>.02);el.querySelector("small").textContent=djText(i)});
- $$(".snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
+ $$("#sounds .snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||""):""});
  $("#playBtn").textContent=G.stopAt?"■ SUBITO":G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
@@ -131,4 +133,4 @@ function flash(sel){$$(sel).forEach(el=>{el.classList.add("hit");clearTimeout(el
 function uiNote(n,on){const k=$(`#keys i[data-k="${n}"]`);if(k)k.classList.toggle("on",on)}
 function setMidi(ok,txt){const m=$("#midi");m.textContent=txt;m.classList.toggle("ok",ok);$("#gateMidi").textContent=ok?`Tastiera collegata: ${txt}`:txt}
 
-loadSet();build();render();initMIDI();requestAnimationFrame(frame);
+loadSet();build();render();loadCustomSounds();initMIDI();requestAnimationFrame(frame);

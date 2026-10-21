@@ -68,6 +68,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 .snd:hover{border-color:var(--dim)}
 .snd.on{background:var(--sel);border-color:var(--sel);color:#0d1420}
 .snd.wait{opacity:.5}
+.snd:disabled{cursor:default}
 .drumkeys{display:flex;gap:4px;flex-wrap:wrap}
 .dk{font:12px var(--f-body);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:4px 7px;display:flex;gap:5px}
 .dk.bk{background:#0b0d10}
@@ -174,7 +175,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
   </header>
 
   <section class="soundbar" aria-label="Suoni">
-    <div class="sbh"><span class="sbt">Suono</span><span class="sbk">▲ ▼ cambia famiglia · tasto centrale: suono successivo · oppure clic</span></div>
+    <div class="sbh"><span class="sbt">Suono</span><span class="sbk">▲ ▼ cambia famiglia · tasto centrale: suono successivo · oppure clic</span><button class="small" id="addBtn" style="margin-left:auto">+ SUONI</button></div>
     <div class="sounds" id="sounds"></div>
     <div class="drumkeys" id="drumKeys" hidden></div>
   </section>
@@ -196,6 +197,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     <span><b>▲ ▼</b> famiglia · <b>centrale</b> suono</span>
     <span><b>◀ ▶</b> annulla / ripeti</span>
         <span><b>Manopole 1–8</b> volume / pan / effetti DJ (LED spenti)</span>
+  </div>
+</div>
+
+<div id="addSounds" class="overlay" hidden>
+  <div class="sheet">
+    <div class="shead"><h2>AGGIUNGI SUONI</h2><button class="small" id="closeAdd">CHIUDI</button></div>
+    <div id="addBody" style="display:flex;flex-direction:column;gap:16px"></div>
   </div>
 </div>
 

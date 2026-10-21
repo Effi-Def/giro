@@ -20,6 +20,7 @@ Rispondi sempre in italiano. L'interfaccia è in italiano.
 src/shell.html       HTML + CSS; il segnaposto <!--SCRIPT--> viene sostituito dal build
 src/sounds_meta.js   elenco dei 20 suoni (generato da tools/build_sounds.py)
 src/sounds_data.js   campioni in base64 (generato, 8,7 MB: non aprirlo, non modificarlo a mano)
+src/custom.js        suoni aggiunti dall'utente (catalogo + file del PC), pannello «+ SUONI»
 src/sampler.js       caricamento campioni, voice() dal vivo, renderNote() per la quantizzazione, preview()
 src/core.js          LoopCore: motore del looper, gira dentro l'AudioWorklet
 src/app.js           audio graph, stato dei loop (G), azioni, quantizzazione, MIDI, tastiera del PC
@@ -82,6 +83,7 @@ Dettagli:
 - `off` salta il silenzio iniziale degli mp3: conta per il tempismo dei loop.
 - Batterie: stessa mappa in ogni ottava. Do cassa, Do# rim, Re rullante, Re# clap, Mi rullante 2, Fa tom basso, Fa# charleston, Sol tom medio, Sol# charleston corto, La tom alto, La# charleston aperto (chiuso dal charleston chiuso), Si piatto.
 - Per aggiungere o cambiare un suono: modifica `INST` in `fetch_samples.py` e la lista `S` in `build_sounds.py`, poi `extract → fetch → analyze → build_sounds → build`. `samples/` non è nel repo: `extract_samples.py` ci rimette i campioni già incorporati (le batterie non hanno uno script di download). Senza ffmpeg, `analyze_samples.py` decodifica con Chromium via Playwright, con lo stesso downmix di ffmpeg (i guadagni tornano identici).
+- **Suoni aggiunti dall'utente** (`custom.js`, pulsante «+ SUONI»): catalogo di ~100 strumenti General MIDI dello stesso soundfont MusyngKite, scaricati dalla pagina (CORS aperto; serve internet solo per scaricare) un campione ogni 3 semitoni, più file audio del PC (nota presa dal nome, es. `basso A2.wav`, altrimenti Do centrale; famiglia «Miei»). Restano in IndexedDB (db `giro_sounds`), guadagno e attacco calcolati come `analyze_samples.py`, si aggiungono a `SOUNDS` all'avvio (`loadCustomSounds`); il suono scelto si riprende da `SET.sid`. Test: `tests/custom_test.py` (download simulato, usa Chrome installato).
 - Non c'è anteprima quando scegli un suono: è stata tolta perché suonava sopra i loop.
 
 ## Mappa dell'Axiom (fissa, letta dalla diagnostica dell'utente)
