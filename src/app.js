@@ -99,7 +99,6 @@ function djKnob(i,v){
    case 4:D.crush.curve=crushCurve(a);break;
    case 5:{const was=!!D.gateOsc;D.gate.gain.setTargetAtTime(1-a/2,t,.02);D.gateAmt.gain.setTargetAtTime(a/2,t,.02);if((a>0)!==was)djRetime();break}
    case 6:djRoll(a<.1?0:[1,2,4,8][Math.min(3,Math.floor((a-.1)/.9*4))]);break}}
- if(knobMode!=="dj")setKnobMode("dj");
  flashHint(`Effetto <b>${i+1} ${DJ_NAMES[i]}</b>: `+djText(i));render()}
 function djText(i){const a=DJV[i];
  if(i===0)return a===0?"spento":a<0?"più scuro "+Math.round(-a*100)+"%":"più leggero "+Math.round(a*100)+"%";
@@ -453,7 +452,7 @@ function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;if(st>=0xF0)return;
   if(d1===16){if(d2>63){flash(`[data-key="16"]`);stopButton();if(stopRel)stopPress()}else{stopRel=true;stopRelease()}return}
   if(d1===17){if(d2>63){flash(`[data-key="17"]`);playDown(playRel)}else{playRel=true;playUp()}return}
   if(BTN[d1]){if(d2>63){flash(`[data-key="${d1}"]`);BTN[d1]()}return}
-  if(d1>=1&&d1<=8){if(ready)djKnob(d1-1,d2);return} // modo MIDI, LED spenti: le manopole sono gli effetti DJ
+  if(d1>=1&&d1<=8){if(ready)knob(d1-1,d2);return} // CC 1–8: fanno quello che dice il modo scelto nell'app (volume / pan / effetti DJ)
   return}
  if(on)noteOn(d1,d2/127);else if(off)noteOff(d1)}
 
