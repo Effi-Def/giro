@@ -7,11 +7,12 @@ class LoopCore{
   this.sr=sr;this.NL=8;this.TAIL=Math.round(sr*1.6);
   this.RL=Math.ceil(sr*3);this.ring=[0,1,2].map(()=>new Float32Array(this.RL));
   this.q=[];this.msgs=[];this.peakClock=0;this.ramp=1/(.004*sr);
+  this.dumps=[];this.DB=65536; // salvataggi in corso; campioni copiati al massimo per blocco audio
   this.loops=[];for(let i=0;i<this.NL;i++)this.loops.push(this.fresh());
  }
  // pan: -1 sinistra … 1 destra; fx: filtro sull'uscita del loop, -1 passa-basso … 0 niente … 1 passa-alto.
- // ps/fs sono i valori smussati, z1/z2 gli stati del filtro.
- fresh(){return{buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,pg:null,rec:null,dub:null,tails:[],pq:[],undo:[],redo:[]}}
+ // ps/fs sono i valori smussati, z1/z2 gli stati del filtro. ver cresce a ogni modifica del buffer, sv è la versione già salvata.
+ fresh(){return{buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,pg:null,ver:0,sv:0,rec:null,dub:null,tails:[],pq:[],undo:[],redo:[]}}
  cmd(c){this.q.push(c)}
  mod(a,n){return((a%n)+n)%n}
  snap(L){return{buf:L.buf,len:L.len,t0:L.t0}}
@@ -24,9 +25,10 @@ class LoopCore{
  exec(c,F0){const L=c.i!=null?this.loops[c.i]:null;
   switch(c.type){
    case "reset":this.loops=this.loops.map(o=>{const n=this.fresh();n.vol=o.vol;n.pan=n.ps=o.pan;n.fx=n.fs=o.fx;return n});break;
-   // salvataggio sessione: "dump" manda copie dei buffer pieni, "load" rimette un loop salvato
-   case "dump":this.msgs.push({type:"dump",items:this.loops.map((o,i)=>o.buf?{i,len:o.len,t0:o.t0,data:o.buf.slice()}:null).filter(Boolean)});break;
-   case "load":L.buf=new Float32Array(c.data);L.len=c.len;L.t0=c.t0;L.vol=c.vol;L.pan=L.ps=c.pan;L.fx=L.fs=c.fx;L.undo=[];L.redo=[];L.g=0;L.gt=0;this.state(c.i);break;
+   // salvataggio sessione: "dump" manda copie dei loop cambiati dall'ultimo salvataggio (all: tutti; exp: per l'export,
+   // non conta come salvato), copiate a pezzi da dumpStep; "load" rimette un loop salvato
+   case "dump":this.dumps.push({exp:!!c.exp,q:this.loops.map((o,j)=>o.buf&&(c.all||o.ver!==o.sv)?j:-1).filter(j=>j>=0),items:[],cur:null});break;
+   case "load":L.buf=new Float32Array(c.data);L.len=c.len;L.t0=c.t0;L.vol=c.vol;L.pan=L.ps=c.pan;L.fx=L.fs=c.fx;L.undo=[];L.redo=[];L.g=0;L.gt=0;L.ver++;L.sv=L.ver;this.state(c.i);break;
    case "rec":L.rec={bus:c.bus,start:c.start,comp:c.comp||0,have:Math.max(c.start,F0-this.RL+1),data:new Float32Array(this.sr*8),end:null,len:0,t0:0};break;
    case "recEnd":if(L.rec){L.rec.end=c.end;L.rec.len=c.len;L.rec.t0=c.t0}break;
    case "cancelRec":L.rec=null;break;
@@ -34,17 +36,17 @@ class LoopCore{
    case "undub":if(L.dub){L.tails.push(this.tail(L.dub,F0));L.dub=null;this.state(c.i)}break;
    // note quantizzate: "fill" riempie un loop appena registrato, "pend" aggiunge una nota
    // di sovraincisione che diventa udibile solo quando la testina la raggiunge nel giro dopo
-   case "fill":if(L.rec)L.rec.fill=c.data;else if(L.buf&&c.data.length===L.len){const b=L.buf;for(let j=0;j<b.length;j++)b[j]+=c.data[j];this.peaks(c.i)}break;
+   case "fill":if(L.rec)L.rec.fill=c.data;else if(L.buf&&c.data.length===L.len){const b=L.buf;for(let j=0;j<b.length;j++)b[j]+=c.data[j];L.ver++;this.peaks(c.i)}break;
    case "pend":if(L.buf)L.pq.push(c);break;
    case "gate":L.pg={on:c.on,frame:c.frame};break;
    case "vol":L.vol=c.v;break;
    case "pan":L.pan=Math.max(-1,Math.min(1,c.v));break;
    case "fx":L.fx=Math.max(-1,Math.min(1,c.v));break;
    case "shift":for(const o of this.loops){o.t0+=c.delta;for(const s of o.undo)s.t0+=c.delta;for(const s of o.redo)s.t0+=c.delta}break;
-   case "clear":if(L.buf)L.undo.push(this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;this.state(c.i);break;
+   case "clear":if(L.buf)L.undo.push(this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;L.ver++;this.state(c.i);break;
    case "undo":case "redo":{
     L.dub=null;L.tails=[];L.pq=[];const from=c.type==="undo"?L.undo:L.redo,to=c.type==="undo"?L.redo:L.undo;
-    if(from.length){to.push(this.snap(L));const s=from.pop();L.buf=s.buf;L.len=s.len;L.t0=s.t0}
+    if(from.length){to.push(this.snap(L));const s=from.pop();L.buf=s.buf;L.len=s.len;L.t0=s.t0;L.ver++}
     this.state(c.i);break}
   }}
  tail(src,F){return{bus:src.bus,comp:src.comp,from:F,until:F+this.TAIL}}
@@ -53,7 +55,7 @@ class LoopCore{
   if(R.fill&&R.fill.length===len)b.set(R.fill);
   else for(let j=0;j<n;j++)b[this.mod(R.start+j-R.comp-R.t0,len)]+=R.data[j];
   L.undo.push(this.snap(L));L.redo=[];
-  L.buf=b;L.len=len;L.t0=R.t0;L.rec=null;L.pq=[];L.tails=R.fill?[]:[this.tail(R,R.end)];
+  L.buf=b;L.len=len;L.t0=R.t0;L.rec=null;L.ver++;L.pq=[];L.tails=R.fill?[]:[this.tail(R,R.end)];
   // il loop appena chiuso parte senza dissolvenza, in continuità con quello che hai appena suonato
   if(L.pg&&L.pg.on&&L.pg.frame<=R.end+256){L.gt=1;L.g=L.vol;L.pg=null}
   this.msgs.push({type:"done",i});this.state(i)}
@@ -79,7 +81,7 @@ class LoopCore{
    if(L.pg&&L.pg.frame<F1){L.gt=L.pg.on?1:0;L.pg=null}
    if(!L.buf)continue;const b=L.buf,len=L.len,target=L.gt*L.vol;let g=L.g;
    if(L.pq.length){L.pq=L.pq.filter(P=>{if(P.at>=F1)return true;const d=P.data;let p=this.mod(P.start,len);
-     for(let k=0;k<d.length;k++){b[p]+=d[k];if(++p===len)p=0}this.peaks(i);return false})}
+     for(let k=0;k<d.length;k++){b[p]+=d[k];if(++p===len)p=0}L.ver++;this.peaks(i);return false})}
    L.ps+=(L.pan-L.ps)*sm;L.fs+=(L.fx-L.fs)*sm;
    if(g>1e-5||target>0){let p=this.mod(F0-L.t0,len);
     const oL=outs?outs[i][0]:out,oR=outs?outs[i][1]:outR;
@@ -92,12 +94,25 @@ class LoopCore{
       const s=hp?x-kq*v1-v2:v2;oL[k]+=s*gl;if(oR)oR[k]+=s*gr;if(++p===len)p=0}
      L.z1=z1;L.z2=z2}}
    L.g=g;
-   if(L.dub){const x=ins[L.dub.bus];if(x){let p=this.mod(F0-L.dub.comp-L.t0,len);for(let k=0;k<n;k++){b[p]+=x[k];if(++p===len)p=0}}
+   if(L.dub){const x=ins[L.dub.bus];if(x){let p=this.mod(F0-L.dub.comp-L.t0,len);for(let k=0;k<n;k++){b[p]+=x[k];if(++p===len)p=0}L.ver++}
     if(peakNow)this.peaks(i)}
    if(L.tails.length){L.tails=L.tails.filter(T=>{const x=ins[T.bus];
      if(x){let p=this.mod(F0-T.comp-L.t0,len);const span=T.until-T.from;
-      for(let k=0;k<n;k++){const f=F0+k;if(f>=T.from&&f<T.until){const w=1-(f-T.from)/span;b[p]+=x[k]*w*w}if(++p===len)p=0}}
+      for(let k=0;k<n;k++){const f=F0+k;if(f>=T.from&&f<T.until){const w=1-(f-T.from)/span;b[p]+=x[k]*w*w}if(++p===len)p=0}L.ver++}
      if(F1>=T.until){this.peaks(i);return false}return true})}
   }
+  this.dumpStep();
  }
+ // salvataggio a pezzi: al massimo DB campioni copiati per blocco audio, così il thread audio non si ferma
+ // (copiare 8 loop lunghi in un colpo solo prendeva ~56 ms e faceva buchi nell'audio)
+ dumpStep(){const J=this.dumps[0];if(!J)return;let budget=this.DB;
+  while(budget>0){
+   if(!J.cur){const i=J.q.shift();if(i==null)break;const L=this.loops[i];if(!L.buf)continue;J.cur={i,src:L.buf,ver:L.ver,off:0,chunks:[]}}
+   const C=J.cur,L=this.loops[C.i];
+   // buffer sostituito a metà copia (annulla, nuova registrazione): ricomincio quel loop
+   if(L.buf!==C.src){J.cur=null;if(L.buf)J.q.unshift(C.i);continue}
+   const n=Math.min(budget,C.src.length-C.off);C.chunks.push(C.src.slice(C.off,C.off+n));C.off+=n;budget-=n;
+   // se il loop cambia durante la copia, ver resta diverso da sv e il prossimo salvataggio lo ricopia
+   if(C.off>=C.src.length){J.items.push({i:C.i,len:L.len,t0:L.t0,chunks:C.chunks});if(!J.exp)L.sv=C.ver;J.cur=null}}
+  if(!J.cur&&!J.q.length){this.dumps.shift();this.msgs.push({type:"dump",exp:J.exp,items:J.items,has:this.loops.map(o=>!!o.buf)})}}
 }

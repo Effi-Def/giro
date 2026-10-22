@@ -173,7 +173,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
       <button class="big" id="dropBtn" hidden title="Tocco: drop / rientro sull'1 · tenuto: build-up (▶ sull'Axiom, B sul PC)">▶ DROP</button>
       <button class="big" id="dubBtn">● SOVRAINCIDI</button>
       <button class="small" id="knobBtn" title="Cosa fanno le manopole: cambia col pulsante dei modi dell'Axiom, con un clic qui o col tasto M">MANOPOLE <b>VOLUME</b></button>
-      <button class="small" id="perfBtn" title="Registra tutto quello che esce e lo salva in un WAV (tasto E sul PC)">● REGISTRA ESIBIZIONE</button>
+      <button class="small" id="perfBtn" title="Registra tutto quello che esce e lo salva in un WAV (tasto N sul PC)">● REGISTRA ESIBIZIONE</button>
       <button class="small" id="qBtn" title="Rimette a tempo le note registrate (Q sul PC)">QUANTIZZA 1/16</button>
       <button class="small" id="undoBtn" title="Annulla l'ultimo strato (◀ sull'Axiom)">◀ ANNULLA</button>
       <button class="small" id="redoBtn" title="Ripristina (▶ sull'Axiom)">RIPETI ▶</button>
@@ -192,7 +192,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
   <div class="mid">
     <div class="hint" id="hintBox"><div id="hint"></div></div>
     <div class="djctl" id="djCtl" hidden>
-      <button class="small" id="fxScopeBtn" title="Su cosa agiscono le manopole degli effetti: tutto il mix o solo il loop selezionato (tasto L)">EFFETTI SU <b>TUTTO</b></button>
+      <button class="small" id="fxScopeBtn" title="Su cosa agiscono le manopole degli effetti: tutto il mix o solo il loop selezionato (tasto C)">EFFETTI SU <b>TUTTO</b></button>
       <button class="small" id="fxStopBtn" title="Spegne tutti gli effetti, sul mix e su ogni loop (tasto 0)">STOP EFFETTI</button>
     </div>
     <div class="djbar" id="djBar" hidden aria-label="Effetti DJ sulle manopole"></div>
@@ -206,10 +206,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
     <span><b>Tieni premuto</b> cancella</span>
     <span><b>●</b> sovraincidi · <b>pitch bend</b> sceglie il loop</span>
     <span><b>▶</b> drop · tenuto: build-up</span>
-    <span><b>■</b> fine a tempo · tenuto: cancella tutto</span>
+    <span><b>■</b> fine a tempo · tenuto: cancella tutto · da fermo: spegne le note</span>
     <span><b>▲ ▼</b> famiglia · <b>centrale</b> suono</span>
     <span><b>◀ ▶</b> annulla / ripeti</span>
-        <span><b>Manopole 1–8</b> volume / pan / effetti DJ (LED spenti)</span>
+        <span><b>Manopole 1–8</b> volume / pan / effetti DJ · si agganciano passando dal valore</span>
   </div>
 </div>
 
@@ -261,16 +261,16 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>Pad tenuto</td><td>Cancella il loop (◀ lo riporta indietro).</td></tr>
         <tr><td>●</td><td>Sovraincidi sul loop selezionato (l'ultimo toccato); ripremi per smettere.</td></tr>
         <tr><td>Pitch bend</td><td>Su / giù: seleziona il loop successivo / precedente senza fermarlo. Poi ● per sovraincidere.</td></tr>
-        <tr><td>■</td><td>Ferma tutto alla fine del giro, sul battere. Ripremi per fermare subito. Tenuto premuto 2 secondi: cancella tutto.</td></tr>
+        <tr><td>■</td><td>Ferma tutto alla fine del giro, sul battere. Ripremi per fermare subito. Tenuto premuto 2 secondi: cancella tutto. Da fermo spegne le note rimaste accese (anche <kbd>Esc</kbd> sul PC).</td></tr>
         <tr><td>▶</td><td>Da fermo, fa ripartire tutto dall'inizio. Mentre suona, <b>tocco = drop</b>: al prossimo 1 resta solo il loop selezionato; ritocca e tutto rientra sul prossimo 1. <b>Tenuto = build-up</b>: il suono si chiude piano piano; quando lasci si riapre di colpo sull'1 (e, se eri in drop, rientra tutto).</td></tr>
         <tr><td>◀ ▶ (frecce)</td><td>Annulla / ripristina l'ultimo strato.</td></tr>
         <tr><td>▲ ▼</td><td>Cambia famiglia di suoni (riprende l'ultimo suono usato in quella famiglia).</td></tr>
         <tr><td>Tasto centrale</td><td>Suono successivo nella stessa famiglia.</td></tr>
         <tr><td>Quantizza</td><td>Le note registrate vengono rimesse a tempo sulla griglia (1/16 o 1/8). Il primo loop decide il tempo: dura quanto vuoi, la griglia lo divide in parti uguali. Funziona con i suoni di Giro, non con un microfono.</td></tr>
-        <tr><td>Manopole 1–8</td><td>Secondo il pulsante dei modi accanto alle manopole: LED <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, tutti <b>spenti</b> (modo MIDI) = <b>effetti DJ su tutto il mix</b>: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco a tempo · 3 riverbero · 4 flanger · 5 crusher · 6 trance gate a tempo · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera. Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Il modo si vede in alto (MANOPOLE …) e si cambia anche con un clic lì.</td></tr>
+        <tr><td>Manopole 1–8</td><td>Secondo il modo scelto col pulsante MANOPOLE in alto (o tasto M): <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, <b>Effetti DJ</b> = effetti su tutto il mix o sul loop selezionato: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco a tempo · 3 riverbero · 4 flanger · 5 crusher · 6 trance gate a tempo · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera (sul singolo loop: volume del loop). Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Dopo un cambio di modo, di loop o di ambito una manopola non salta: agisce quando passa dal valore attuale (in alto compare fin dove girarla).</td></tr>
       </table>
-      <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX: cambia solo cosa fanno le manopole. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
-      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>L</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>E</kbd> registra esibizione · <kbd>Spazio</kbd> play/stop · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
+      <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
+      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>C</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>N</kbd> registra esibizione · <kbd>B</kbd> drop / build-up · <kbd>Maiusc</kbd>+<kbd>1</kbd>–<kbd>8</kbd> seleziona il loop · <kbd>Spazio</kbd> play/stop · <kbd>Esc</kbd> spegne le note · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
       <div><button class="small" id="diagStart">DIAGNOSTICA MIDI</button></div>
       <pre id="diag">—</pre>
     </section>

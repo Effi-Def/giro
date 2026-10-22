@@ -42,32 +42,43 @@ async def main():
           while(L0.pend)await wait(10);
           // HyperControl (canale 16): pulsante dei modi, manopole CC 33–40, tasto centrale CC 98, pad note 81–88
           const hc=(n,v)=>onMIDI({data:[0xBF,n,v]});
-          hc(58,127);hc(58,0);res.hcVol=knobMode;hc(58,127);hc(58,0);res.hcPan=knobMode;hc(33,0);res.pan0=G.loops[0].pan;
-          hc(59,127);hc(59,0);res.hcFx=knobMode;hc(34,127);res.fx1=G.loops[1].fx;
+          // le manopole si agganciano passando dal valore attuale: kc/kh prima la portano lì, poi al valore voluto
+          const kc=(n,v)=>{cc(n,Math.round(knobTarget(n-1)));cc(n,v)},kh=(n,v)=>{hc(n,Math.round(knobTarget(n-33)));hc(n,v)};
+          hc(58,127);hc(58,0);res.hcVol=knobMode;hc(58,127);hc(58,0);res.hcPan=knobMode;kh(33,0);res.pan0=G.loops[0].pan;
+          hc(59,127);hc(59,0);res.hcFx=knobMode;kh(34,127);res.fx1=G.loops[1].fx;
           res.fxBar=document.querySelector('.loop[data-loop="1"] .vol').classList.contains('fx');
           hc(60,127);hc(60,0);res.hcMidi=knobMode;
           res.knobLabel=document.querySelector('#knobBtn').textContent;
           // modo MIDI (LED spenti): manopole CC 1–8 = effetti DJ sul mix
-          const v0=G.loops[0].vol;cc(1,0);cc(2,127);cc(4,127);cc(5,127);cc(6,127);cc(7,60);cc(8,64);await wait(400);
+          const v0=G.loops[0].vol;kc(1,0);kc(2,127);kc(4,127);kc(5,127);kc(6,127);kc(7,60);kc(8,64);await wait(400);
           res.djBar=!document.querySelector('#djBar').hidden;res.djVolUntouched=G.loops[0].vol===v0;
           res.djFilter=DJ.lp.frequency.value<1000;res.djEcho=DJ.eWet.gain.value>.4&&DJ.eFb.gain.value>.5;
           res.djFlanger=DJ.flWet.gain.value>.5;res.djCrush=!!DJ.crush.curve;res.djGate=!!DJ.gateOsc;
           res.djRoll=DJ.rollK===2;res.djLive=Math.abs(DJV[7]-64/127)<1e-6;
           await wait(Math.round(G.base/G.beats/2/sr*1000)*2+150);res.djRollOn=DJ.rWet.gain.value===1&&DJ.rDry.gain.value===0;
           // tutto spento di nuovo: il suono torna com'era
-          cc(1,64);cc(2,0);cc(4,0);cc(5,0);cc(6,0);cc(7,0);cc(8,127);await wait(400);
+          kc(1,64);kc(2,0);kc(4,0);kc(5,0);kc(6,0);kc(7,0);kc(8,127);await wait(400);
           res.djOff=DJ.lp.frequency.value>15000&&DJ.hp.frequency.value<20&&DJ.eWet.gain.value<.01&&DJ.flWet.gain.value<.01&&!DJ.crush.curve&&!DJ.gateOsc&&DJ.rollK===0&&DJ.rDry.gain.value===1&&DJ.rWet.gain.value===0&&DJV[7]===1;
           // effetti sul singolo loop: il loop 1 tiene l'eco, le manopole passano al loop 2 (flanger); la manopola 8 è il volume del loop
-          G.sel=0;setFxScope('loop');cc(2,127);await wait(300);
+          G.sel=0;setFxScope('loop');kc(2,127);await wait(300);
           const an=ctx.createAnalyser();LDJ[0].out.connect(an);await wait(300);const buf=new Float32Array(2048);an.getFloatTimeDomainData(buf);
           res.fxLoopSound=buf.some(x=>Math.abs(x)>1e-4);
-          G.sel=1;cc(4,127);cc(8,64);await wait(300);
+          G.sel=1;kc(4,127);kc(8,64);await wait(300);
           res.fxLoopKeep=LDJ[0].eWet.gain.value>.4&&LDJ[0].flWet.gain.value<.01&&LDJ[1].flWet.gain.value>.5&&DJ.eWet.gain.value<.01&&DJ.flWet.gain.value<.01;
           res.fxLoopVol=Math.abs(G.loops[1].vol-64/127)<1e-6&&DJV[7]===1;
           res.fxBadge=document.querySelector('.loop[data-loop="0"] .snm').textContent.endsWith('FX');
-          setFxScope('mix');cc(2,127);await wait(100);stopAllFx();await wait(300);
+          setFxScope('mix');kc(2,127);await wait(100);stopAllFx();await wait(300);
           res.fxStop=LDJ.every(d=>!d)&&DJ.eWet.gain.value<.01&&!djAll().some(fxActive);
           G.loops[1].vol=.8;send({type:'vol',i:1,v:.8});
+          // aggancio: lontana dal valore la manopola non fa niente, passandoci sopra lo prende
+          setKnobMode("vol");const lv=G.loops[0].vol;cc(1,5);res.pickWait=G.loops[0].vol===lv&&document.querySelector('#hint').textContent.includes('agganciarla');
+          cc(1,90);cc(1,115);res.pickCross=Math.abs(G.loops[0].vol-115/127)<1e-6;
+          // manopola 5 lasciata alta in VOLUME: passando a EFFETTI DJ non accende il crusher
+          kc(5,120);setKnobMode("dj");cc(5,121);res.pickDj=!DJ.crush.curve;knob(4,102);
+          // dopo STOP EFFETTI la manopola rimasta girata non riaccende l'effetto
+          kc(2,120);stopAllFx();cc(2,121);res.pickAfterStop=DJ.eWet.gain.value<.01&&DJV[1]===0;
+          // note bloccate: «all notes off» dall'Axiom le spegne, anche col pedale
+          setSustain(true);noteOn(67,.8);noteOff(67);onMIDI({data:[0xB0,123,0]});res.allOff=held.size===0&&!sustain;
           // dal telefono: tenuto = build-up, rilascio = si riapre
           telCmd({c:'play',v:'down'});await wait(600);res.telBuild=building;telCmd({c:'play',v:'up'});res.telBuildEnd=!building;
           const s0=SET.sound;hc(98,127);hc(98,0);res.hcCenter=SET.sound!==s0;
@@ -84,6 +95,8 @@ async def main():
           res.label=document.querySelector('#playBtn').textContent;
           while(nowF()<at+sr*.08)await wait(5);res.stoppedAfter=!G.running&&!G.stopAt;
           // da fermo ▶ riparte; ■ ■ ferma subito
+          // ■ da fermo: spegne le note rimaste accese
+          noteOn(60,.8);setSustain(true);noteOn(64,.8);noteOff(64);cc(16,127);cc(16,0);res.panic=held.size===0&&!sustain;
           playButton();await wait(300);cc(16,127);cc(16,0);cc(16,127);cc(16,0);res.immediate=!G.running&&!G.stopAt;
           // ■ tenuto: cancella tutto solo dopo 2 s (il rilascio è stato visto, quindi vale anche dall'Axiom)
           cc(16,127);await wait(800);res.notYet=anyHas();await wait(1500);res.cleared=!anyHas();cc(16,0);
@@ -92,8 +105,15 @@ async def main():
           while(ctx.currentTime-T2<1.5)await wait(1);tap(0);await wait(200);
           cc(16,127);await wait(200);cc(16,0);await wait(2200);res.shortKeeps=anyHas();
           return res}''')
+        # tastiera del PC: E e L sono note (Re# e Re sopra), N registra l'esibizione, C cambia l'ambito degli effetti;
+        # la finestra che perde il focus spegne le note tenute
+        await pg.keyboard.down('e');r['keyE']=await pg.evaluate('held.size===1&&!perf');await pg.keyboard.up('e')
+        await pg.keyboard.down('l');r['keyL']=await pg.evaluate('held.size===1&&fxScope==="mix"');await pg.keyboard.up('l')
+        await pg.keyboard.press('n');r['keyN']=await pg.evaluate('!!perf');await pg.evaluate('perf=null')
+        await pg.keyboard.press('c');r['keyC']=await pg.evaluate('fxScope==="loop"');await pg.keyboard.press('c')
+        await pg.keyboard.down('a');await pg.evaluate('dispatchEvent(new Event("blur"))');r['blurOff']=await pg.evaluate('held.size===0&&pcHeld.size===0');await pg.keyboard.up('a')
         print(json.dumps(r,indent=1));print('errori',errs)
-        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'MANOPOLE EFFETTI DJ','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djFlanger':True,'djCrush':True,'djGate':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'fxLoopSound':True,'fxLoopKeep':True,'fxLoopVol':True,'fxBadge':True,'fxStop':True,'telBuild':True,'telBuildEnd':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
+        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'MANOPOLE EFFETTI DJ','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djFlanger':True,'djCrush':True,'djGate':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'fxLoopSound':True,'fxLoopKeep':True,'fxLoopVol':True,'fxBadge':True,'fxStop':True,'pickWait':True,'pickCross':True,'pickDj':True,'pickAfterStop':True,'allOff':True,'panic':True,'keyE':True,'keyL':True,'keyN':True,'keyC':True,'blurOff':True,'telBuild':True,'telBuildEnd':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
              'stopAtBoundary':True,'stillRunning':True,'label':'■ SUBITO','stoppedAfter':True,'immediate':True,'notYet':True,'cleared':True,'shortKeeps':True}
         bad={k:(r.get(k),v) for k,v in exp.items() if r.get(k)!=v}
         assert not bad and not errs,bad

@@ -58,10 +58,16 @@ console.log('messaggi',msgs().map(m=>m.type).join(','));
  c2.cmd({type:'pan',i:0,v:0});c2.cmd({type:'fx',i:0,v:-1});const [l2]=run2(8192);ok(l2<.01*l0,'filtro passa-basso: 2 kHz quasi spenti ('+(l2/l0).toExponential(1)+')');
  c2.cmd({type:'fx',i:0,v:0});const [l3]=run2(8192);ok(Math.abs(l3-l0)<.01*l0,'filtro al centro: suono intatto');
  c2.cmd({type:'fx',i:0,v:.5});c2.cmd({type:'reset'});run2(N);ok(c2.loops[0].fx===.5&&c2.loops[0].vol===.8,'reset conserva volume, pan e filtro')}
-// sessione: dump copia i buffer pieni, load li rimette (anche in un core nuovo)
-{const d=new LoopCore(sr);c.msgs=[];c.cmd({type:'dump'});run(F+N);
- const dm=msgs().find(m=>m.type==='dump');
- ok(dm&&dm.items.length>=1&&dm.items[0].data.length===dm.items[0].len,'dump: copia dei loop pieni');
+// sessione: dump copia i buffer pieni a pezzi, load li rimette (anche in un core nuovo)
+const join=it=>{const d=new Float32Array(it.len);let o=0;for(const ch of it.chunks){d.set(ch,o);o+=ch.length}it.data=d;return it};
+{const d=new LoopCore(sr);c.msgs=[];c.DB=1000;c.cmd({type:'dump',all:true,exp:true});run(F+N);
+ ok(!msgs().some(m=>m.type==='dump'),'dump: un loop lungo non si copia in un blocco solo');
+ run(F+N*80);const dm=msgs().find(m=>m.type==='dump');dm.items.forEach(join);
+ ok(dm&&dm.items.length>=1&&dm.items[0].data.length===dm.items[0].len&&dm.items[0].chunks.every(ch=>ch.length<=1000)&&dm.has[dm.items[0].i],'dump: copia dei loop pieni, a pezzi');
+ const full=dm.items.length;c.cmd({type:'dump'});run(F+N*80);const d1=msgs().find(m=>m.type==='dump');
+ c.cmd({type:'dump'});run(F+N*80);const d2=msgs().find(m=>m.type==='dump');
+ c.loops[dm.items[0].i].ver++;c.cmd({type:'dump'});run(F+N*80);const d3=msgs().find(m=>m.type==='dump');c.DB=65536;
+ ok(full>=2&&d1.items.length===full&&d2.items.length===0&&d3.items.length===1&&d3.items[0].i===dm.items[0].i,"dump: solo i loop cambiati dall'ultimo salvataggio");
  const it=dm.items[0];d.cmd({type:'load',i:it.i,data:it.data,len:it.len,t0:it.t0,vol:.5,pan:-.3,fx:.2});d.process([null,null,null],new Float32Array(N),0,N);
  const L=d.loops[it.i];ok(L.buf&&L.len===it.len&&L.t0===it.t0&&L.vol===.5&&L.pan===-.3&&L.buf[0]===it.data[0],'load: loop ripristinato con volume, pan e filtro');
  it.data[0]=99;ok(c.loops[it.i].buf[0]!==99,'dump: è una copia, non il buffer vivo')}

@@ -19,7 +19,8 @@ async function initAudio(){
 class GiroLooper extends AudioWorkletProcessor{constructor(){super();this.c=new LoopCore(sampleRate);this.port.onmessage=e=>this.c.cmd(e.data)}
  process(inputs,outputs){const ins=[0,1,2].map(b=>inputs[b]&&inputs[b][0]),n=outputs[0][0].length;if(!this.z||this.z.length!==n)this.z=new Float32Array(n);
   this.c.process(ins,this.z,currentFrame,n,null,outputs.map(o=>[o[0],o[1]]));
-  if(this.c.msgs.length){this.port.postMessage(this.c.msgs);this.c.msgs=[]}return true}}
+  if(this.c.msgs.length){const m=this.c.msgs,tr=[];for(const x of m)if(x.type==="dump")for(const it of x.items)for(const ch of it.chunks)tr.push(ch.buffer);
+   this.port.postMessage(m,tr);this.c.msgs=[]}return true}}
 registerProcessor("giro-looper",GiroLooper);`;
   // da file locale Chrome rifiuta i moduli blob:, quindi prima data:, poi blob:
   try{await ctx.audioWorklet.addModule("data:application/javascript;charset=utf-8,"+encodeURIComponent(src))}
@@ -41,7 +42,8 @@ registerProcessor("giro-looper",GiroLooper);`;
  loadSound(SET.sound).then(preloadAll,preloadAll);restoreSession();
  setInterval(tick,20);
 }
-function send(c){if(!ready)return;if(usingWorklet)node.port.postMessage(c);else core.cmd(c)}
+// tr: buffer da passare al worklet senza copiarli (il mittente non li usa più)
+function send(c,tr){if(!ready)return;if(usingWorklet)node.port.postMessage(c,tr||[]);else core.cmd(c)}
 function applyMix(){if(!ctx)return;const t=ctx.currentTime;
  cutF.frequency.setTargetAtTime(200*Math.pow(100,SET.cut),t,.02);wet.gain.setTargetAtTime(SET.rev*.5+DJV[2]*.8,t,.02);masterOut.gain.setTargetAtTime(SET.master,t,.02)}
 
@@ -183,7 +185,7 @@ function renderRec(i){const L=G.loops[i],evs=G.ev.filter(e=>e.i===i&&e.kind==="r
  const data=new Float32Array(L.len),now=nowF();
  for(const e of evs){e.done=true;const seg=renderNote(e.sound,e.note,e.vel,Math.max((e.off??now)-e.on,sr*.03),e.lv);if(!seg)continue;
   let p=qIndex(e,L);for(let k=0;k<seg.length;k++){data[p]+=seg[k];if(++p===L.len)p=0}}
- send({type:"fill",i,data})}
+ send({type:"fill",i,data},[data.buffer])}
 function commitDubNote(e){e.done=true;G.ev=G.ev.filter(x=>x!==e);const L=G.loops[e.i];if(!L.has||!L.len)return;
  const seg=renderNote(e.sound,e.note,e.vel,Math.max(e.off-e.on,sr*.03),e.lv);if(!seg)return;
  G.dubTake.push(e);checkDouble(G.dubTake);
@@ -260,7 +262,7 @@ function stopAll(){const f=nowF();G.stopAt=0;
  G.drop=false;buildCancel();G.running=false;rollAllOff();render()}
 // ■ a loop avviati: si ferma tutto alla fine del giro, sul battere; ■ di nuovo: subito
 function stopButton(){if(!ready)return;
- if(G.stopAt||!G.running){if(G.stopAt||G.loops.some(l=>l.state==="rec"||l.state==="armed"))stopAll();return}
+ if(G.stopAt||!G.running){const n=allNotesOff();if(G.stopAt||G.loops.some(l=>l.state==="rec"||l.state==="armed"))stopAll();else if(n)flashHint("Spente le note rimaste accese.");return}
  const f=nowF();let at=G.origin+Math.ceil((f-G.origin)/G.base)*G.base;if(at-f<sr*.03)at+=G.base;
  G.stopAt=at;
  G.loops.forEach((L,i)=>{
@@ -326,13 +328,14 @@ function undoSel(redo){if(!ready)return;const i=G.sel,L=G.loops[i];
 
 // ---------- Sessione: salvataggio automatico dei loop in IndexedDB, ripresa all'apertura ----------
 // Si salva un attimo dopo l'ultima modifica (loop chiuso, sovraincisione, annulla, cancella, volume/pan/filtro).
-// Il core manda copie dei buffer (dump); alla ripresa i loop tornano fermi, ▶ li fa partire. Tutto in try/catch:
+// Il core manda a pezzi le copie dei soli loop cambiati (dump); in IndexedDB "s" tiene tempo, volumi e posizioni,
+// "L0"…"L7" i campioni di ogni loop. Alla ripresa i loop tornano fermi, ▶ li fa partire. Tutto in try/catch:
 // se IndexedDB non c'è, Giro funziona come prima senza salvare.
 let saveT=0,restoring=false;
 function saveSoon(){if(restoring)return;clearTimeout(saveT);saveT=setTimeout(()=>send({type:"dump"}),2500)}
 function idb(mode,fn){return new Promise((ok,ko)=>{const r=indexedDB.open("giro",1);r.onupgradeneeded=()=>r.result.createObjectStore("session");
  r.onerror=()=>ko(r.error);r.onsuccess=()=>{const d=r.result,t=d.transaction("session",mode),q=fn(t.objectStore("session"));
-  t.oncomplete=()=>{d.close();ok(q&&q.result)};t.onerror=()=>ko(t.error)}})}
+  t.oncomplete=()=>{d.close();ok(Array.isArray(q)?q.map(x=>x.result):q&&q.result)};t.onerror=()=>ko(t.error)}})}
 // ---------- Registra l'esibizione: tutto quello che esce (note, loop, effetti) in un WAV ----------
 let perf=null,perfTap=null;
 function tapMaster(){perfTap=ctx.createScriptProcessor(4096,2,2);const mute=ctx.createGain();mute.gain.value=0;
@@ -375,10 +378,9 @@ function telPush(){if(!tel.on)return;
  if(s===tel.last)return;if(tel.busy){tel.again=true;return}tel.last=s;tel.busy=true;
  fetch(TEL+"/state",{method:"POST",body:s}).catch(()=>{}).finally(()=>{tel.busy=false;if(tel.again){tel.again=false;telPush()}})}
 // ---------- Esporta WAV: un giro dei loop che suonano, reso offline con lo stesso LoopCore ----------
-let exportWant=false;
 function exportWav(){
  if(!ready||!G.base||!G.loops.some(L=>L.has&&!L.muted)){flashHint("Niente da esportare: registra almeno un loop.");return}
- exportWant=true;send({type:"dump"});flashHint("Preparo il file WAV…")}
+ send({type:"dump",all:true,exp:true});flashHint("Preparo il file WAV…")}
 function wavBlob(L,R,rate){const n=L.length,d=new DataView(new ArrayBuffer(44+n*4)),w=(o,s)=>{for(let k=0;k<s.length;k++)d.setUint8(o+k,s.charCodeAt(k))};
  let pk=0;for(let k=0;k<n;k++)pk=Math.max(pk,Math.abs(L[k]),Math.abs(R[k]));const sc=pk>.98?.98/pk:1;
  w(0,"RIFF");d.setUint32(4,36+n*4,true);w(8,"WAVEfmt ");d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,2,true);
@@ -398,26 +400,32 @@ function doExport(items){
  const url=URL.createObjectURL(wavBlob(L,R,sr)),el=document.createElement("a");el.href=url;el.download=name;document.body.appendChild(el);el.click();el.remove();
  setTimeout(()=>URL.revokeObjectURL(url),10000);
  flashHint(`<b>${name}</b> scaricato: ${(max/sr).toFixed(1)} s, un giro dei loop.`)}
-function onDump(items){
- if(exportWant){exportWant=false;return doExport(items)}
- if(!items.length){if(!G.loops.some(L=>L.state==="rec"||L.state==="closing")&&!anyHas())idb("readwrite",s=>s.delete("s")).catch(()=>{});return}
+function onDump(m){
+ const items=m.items.map(it=>{const data=new Float32Array(it.len);let o=0;for(const ch of it.chunks){data.set(ch,o);o+=ch.length}return{i:it.i,len:it.len,t0:it.t0,data}});
+ if(m.exp)return doExport(items);
+ if(!m.has.some(Boolean)){if(!G.loops.some(L=>L.state==="rec"||L.state==="closing")&&!anyHas())idb("readwrite",s=>{s.clear()}).catch(()=>{});return}
  if(!G.base)return;
- const rec={v:1,sr,base:G.base,beats:G.beats,loops:items.map(it=>{const L=G.loops[it.i];
-  return{i:it.i,len:it.len,rel:it.t0-G.origin,data:it.data,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound}})};
- idb("readwrite",s=>s.put(rec,"s")).catch(()=>{})}
+ // posizione e lunghezza dallo stato di Giro (si spostano insieme a G.origin), i campioni solo dei loop cambiati
+ const loops=[];G.loops.forEach((L,i)=>{if(m.has[i]&&L.has)loops.push({i,len:L.len,rel:L.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound})});
+ const rec={v:2,sr,base:G.base,beats:G.beats,loops};
+ idb("readwrite",s=>{s.put(rec,"s");for(const it of items)s.put(it.data,"L"+it.i);m.has.forEach((h,i)=>{if(!h)s.delete("L"+i)})}).catch(()=>{})}
 async function restoreSession(){
  let rec=null;try{rec=await idb("readonly",s=>s.get("s"))}catch(_){}
- if(!rec||rec.v!==1||rec.sr!==sr||anyHas()||G.base)return;
+ if(!rec||(rec.v!==1&&rec.v!==2)||rec.sr!==sr||anyHas()||G.base)return;
+ // v1 (versioni precedenti): i campioni stavano dentro "s"
+ let datas=rec.loops.map(l=>l.data);if(rec.v===2){try{datas=await idb("readonly",s=>rec.loops.map(l=>s.get("L"+l.i)))}catch(_){return}}
+ if(anyHas()||G.base)return;
  restoring=true;
  G.base=rec.base;G.beats=rec.beats;G.origin=nowF();G.running=false;
- for(const s of rec.loops){const L=G.loops[s.i];if(!L)continue;
+ rec.loops.forEach((s,k)=>{const L=G.loops[s.i],data=datas[k];if(!L||!data||data.length!==s.len)return;
   Object.assign(L,{vol:s.vol,pan:s.pan,fx:s.fx,sound:s.sound});
-  send({type:"load",i:s.i,data:s.data,len:s.len,t0:G.origin+s.rel,vol:s.vol,pan:s.pan,fx:s.fx})}
+  send({type:"load",i:s.i,data,len:s.len,t0:G.origin+s.rel,vol:s.vol,pan:s.pan,fx:s.fx},[data.buffer])});
+ if(rec.v===1)send({type:"dump",all:true}); // riscrive subito nel formato nuovo
  setTimeout(()=>{restoring=false},500);
  flashHint("Ripresa la sessione precedente: <b>▶</b> per riascoltarla. Tieni premuto <b>■</b> per cancellare tutto.");render()}
 
 function onCoreMsg(m){
- if(m.type==="dump")return onDump(m.items);
+ if(m.type==="dump")return onDump(m);
  const L=G.loops[m.i];if(!L)return;
  if(m.type==="peaks"){L.peaks=m.peaks;drawWave(m.i);saveSoon();return}
  if(m.type==="state"){saveSoon();L.undo=m.undo;L.redo=m.redo;
@@ -457,6 +465,9 @@ function noteOff(note,force){const h=held.get(note);if(!h)return;if(sustain&&!fo
  h.v.release(ctx.currentTime);held.delete(note);uiNote(note,false);
  if(h.ev&&!h.ev.done){h.ev.off=nowF();if(h.ev.kind==="dub")commitDubNote(h.ev)}}
 function setSustain(on){sustain=on;if(!on)[...held.entries()].filter(([,h])=>h.sus).forEach(([n])=>noteOff(n,true))}
+// spegne tutte le note dal vivo, anche quelle tenute dal pedale: per le note rimaste bloccate (cavo staccato,
+// rilascio perso). La chiamano ■ da fermo, Esc, i messaggi «all notes off» e lo stacco di una tastiera. Dice quante erano.
+function allNotesOff(){const n=held.size;sustain=false;[...held.keys()].forEach(k=>noteOff(k,true));pcHeld.clear();return n}
 function setSound(i){lastInCat[SOUNDS[i].cat]=i;if(i===SET.sound)return;SET.sound=i;saveSet();if(ready)loadSound(i);render()}
 // ▲▼ saltano di famiglia (riprendendo l'ultimo suono usato lì), il tasto centrale scorre i suoni della famiglia
 const lastInCat={};
@@ -482,7 +493,8 @@ function initMIDI(){
  navigator.requestMIDIAccess().then(acc=>{
   const bind=()=>{const names=[];acc.inputs.forEach(inp=>{inp.onmidimessage=onMIDI;names.push(inp.name.replace(/ MIDI In$/,""))});
    setMidi(names.length>0,names.length?names.join(", "):"Nessuna tastiera")};
-  bind();acc.onstatechange=bind},()=>setMidi(false,"MIDI non consentito"))}
+  // una tastiera che si stacca non manda più i rilasci: spengo le note
+  bind();acc.onstatechange=e=>{if(e&&e.port&&e.port.type==="input"&&e.port.state==="disconnected")allNotesOff();bind()}},()=>setMidi(false,"MIDI non consentito"))}
 let diagOn=false;const diagLines=new Map();
 // sceglie il loop su cui sovraincidere senza toccarne il pad (che lo fermerebbe): solo tra i loop pieni
 function selStep(d){const ids=G.loops.map((L,i)=>L.has?i:-1).filter(i=>i>=0);if(!ids.length)return;
@@ -517,6 +529,21 @@ function knob(i,v){const L=G.loops[i];if(knobMode==="dj")return djKnob(i,v);
  else{L.fx=x;send({type:"fx",i,v:x});
   flashHint(`Loop ${i+1}: ${x===0?"filtro spento":x<0?"più scuro (passa-basso) "+Math.round(-x*100)+"%":"più leggero (passa-alto) "+Math.round(x*100)+"%"}`)}
  render()}
+// Aggancio: una manopola agisce solo quando passa dal valore attuale di quello che comanda. Così cambiando modo
+// (o loop, o ambito degli effetti) una manopola lasciata alta non accende di colpo crusher o roll e non fa saltare un volume.
+// knobSet ricorda dove e a che valore la manopola ha agito l'ultima volta; knobLast l'ultima posizione fisica.
+const knobSet=Array(8).fill(null),knobLast=Array(8).fill(null);
+const knobKey=()=>knobMode==="dj"?"dj"+fxScope+(fxScope==="loop"?G.sel:""):knobMode;
+function knobTarget(i){const L=G.loops[i];
+ if(knobMode==="vol")return L.vol*127;if(knobMode==="pan")return L.pan*63+64;if(knobMode==="fx")return L.fx*63+64;
+ if(fxScope==="loop"&&i===7)return G.loops[G.sel].vol*127;
+ const a=djView().v[i];return i===0?a*63+64:a*127}
+function knobIn(i,v){if(!ready)return;const key=knobKey(),t=knobTarget(i),S=knobSet[i],p=knobLast[i];knobLast[i]=v;
+ const caught=S&&S.key===key&&Math.abs(S.v-t)<=3;
+ if(!caught&&Math.abs(v-t)>3&&!(p!=null&&(p-t)*(v-t)<=0)){
+  const pct=knobMode==="vol"||knobMode==="dj"&&i>0,where=pct?Math.round(t/127*100)+"%":Math.abs(t-64)<3?"metà":Math.round(Math.abs(t-64)/63*100)+"% a "+(t<64?"sinistra":"destra");
+  flashHint(`Manopola ${i+1}${knobMode==="dj"?" "+DJ_NAMES[i]:""}: girala ${v<t?"a destra":"a sinistra"} fino a <b>${where}</b> per agganciarla.`);return}
+ knobSet[i]={key,v};knob(i,v)}
 // HyperControl (canale 16): stessi comandi del modo MIDI con altri numeri
 const HC_CC={116:16,117:17,118:18,99:19,100:20,101:21,102:22,98:23};
 function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;
@@ -529,7 +556,7 @@ function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;
  const ch=st&15;
  if(ch===15&&type===0xB0){
   if(d1>=58&&d1<=60){if(d2>63)hcModeButton(d1);return}
-  if(d1>=33&&d1<=40){if(ready)knob(d1-33,d2);return}
+  if(d1>=33&&d1<=40)return knobIn(d1-33,d2);
   if(HC_CC[d1])d1=HC_CC[d1]}
  // pad in HyperControl: note 81–84 = pad 1–4, 85–88 = pad 5–8 (canale 15, banco B sul 16)
  if(ch>=14&&(type===0x90||type===0x80)&&d1>=81&&d1<=88)d1=d1-81+36;
@@ -537,14 +564,16 @@ function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;
  if(type===0xE0)return pitchBend(d1|(d2<<7));
  if((on||off)&&d1>=36&&d1<=43){const i=d1-36;if(on){flash(`[data-loop="${i}"]`);padDown(i)}else padUp(i);return}
  if(cc){if(d1===64)return setSustain(d2>=64);
+  if(d1===120||d1===123)return allNotesOff(); // all sound off / all notes off
   if(d1===16){if(d2>63){flash(`[data-key="16"]`);stopButton();if(stopRel)stopPress()}else{stopRel=true;stopRelease()}return}
   if(d1===17){if(d2>63){flash(`[data-key="17"]`);playDown(playRel)}else{playRel=true;playUp()}return}
   if(BTN[d1]){if(d2>63){flash(`[data-key="${d1}"]`);BTN[d1]()}return}
-  if(d1>=1&&d1<=8){if(ready)knob(d1-1,d2);return} // CC 1–8: fanno quello che dice il modo scelto nell'app (volume / pan / effetti DJ)
+  if(d1>=1&&d1<=8)return knobIn(d1-1,d2); // CC 1–8: fanno quello che dice il modo scelto nell'app (volume / pan / effetti DJ)
   return}
  if(on)noteOn(d1,d2/127);else if(off)noteOff(d1)}
 
 // ---------- Tastiera del PC ----------
+// tasti delle note: nessuna di queste lettere può essere un comando (i comandi sono controllati prima)
 const KEYMAP="awsedftgyhujkolp;'";const pcHeld=new Map();
 addEventListener("keydown",e=>{
  if(!$("#gate").hidden){e.preventDefault();start();return}
@@ -559,9 +588,10 @@ addEventListener("keydown",e=>{
  if(k==="b")return playDown(true); // come ▶: tocco = drop, tenuto = build-up
  if(k==="q")return cycleQuant();
  if(k==="m")return cycleKnobMode();
- if(k==="l")return toggleFxScope();
+ if(k==="c")return toggleFxScope();
  if(k==="0")return stopAllFx();
- if(k==="e")return perfToggle();
+ if(k==="n")return perfToggle();
+ if(e.key==="Escape")return allNotesOff();
  if(e.key==="Backspace"){e.preventDefault();return undoSel(false)}
  if(e.key==="ArrowUp"){e.preventDefault();return stepFamily(1)}
  if(e.key==="ArrowDown"){e.preventDefault();return stepFamily(-1)}
@@ -569,6 +599,9 @@ addEventListener("keydown",e=>{
  if(e.key==="ArrowLeft"){e.preventDefault();return stepInFamily(-1)}
  if(k==="z"||k==="x"){SET.oct=Math.max(-3,Math.min(3,SET.oct+(k==="z"?-1:1)));flashHint(`Ottava tastiera PC: ${SET.oct>0?"+":""}${SET.oct}`);return}
  const idx=KEYMAP.indexOf(k);if(idx>=0){const n=60+SET.oct*12+idx;pcHeld.set(k,n);noteOn(n,.8)}});
+// finestra che perde il focus: i rilasci dei tasti del PC non arriverebbero più (note bloccate, pad o ■ tenuti che cancellano)
+addEventListener("blur",()=>{[...pcHeld.values()].forEach(n=>noteOff(n,true));pcHeld.clear();
+ for(const i in holdT)padUp(+i);stopRelease();playUp()});
 addEventListener("keyup",e=>{const k=e.key.toLowerCase();
  if(e.code==="Space")return stopRelease();
  if(k==="b")return playUp();
