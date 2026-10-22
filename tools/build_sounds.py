@@ -21,18 +21,29 @@ S=[ # id, nome, categoria, cartella, extra
  ('synthbrass','Synth brass','Synth','synth_brass_1',dict(rel=.2,att=.01,loop=1)),
  ('synthstrings','Synth strings','Synth','synth_strings_1',dict(rel=.6,att=.04,loop=1)),
  ('sweep','Pad sweep','Synth','pad_8_sweep',dict(rel=.9,att=.1,loop=1)),
+ # EDM: generati da tools/make_edm.py (ogg Opus); sub 808 due ottave sotto, reese un'ottava sotto
+ ('sub808','Sub 808','EDM','edm_sub808',dict(rel=.15,tr=-24)),
+ ('reese','Reese bass','EDM','edm_reese',dict(rel=.12,tr=-12,loop=1)),
+ ('supersaw','Supersaw','EDM','edm_supersaw',dict(rel=.3,loop=1)),
 ]
 LM={0:'kick',1:'stick-m',2:'snare-m',3:'clap',4:'snare-h',5:'tom-l',6:'hhclosed',7:'tom-m',8:'hhclosed-short',9:'tom-h',10:'hhopen',11:'crash'}
+# kit house: Roland TR-909 scaricata da tools/fetch_edm.py (nomi dei file in samples/house909)
+H909={0:'kick',1:'rim',2:'snare',3:'clap',4:'snare2',5:'tom-l',6:'hhclosed',7:'tom-m',8:'hhclosed-short',9:'tom-h',10:'hhopen',11:'crash'}
 TR={0:'kick_bd5025',1:'rimshot_rs',2:'snare_sd5025',3:'clap_cp',4:'snare_sd2550',5:'tom-low_lt25',6:'hihat-close_ch',7:'mid-tom_mt25',8:'maraca_ma',9:'tom-hi_ht25',10:'hihat-open_oh25',11:'cymbal_cy5025'}
 meta=[];data={}
 for id,name,cat,folder,ex in S:
   m=dict(id=id,name=name,cat=cat,gain=g(folder),off=round(A[folder]['onset_ms'][1]/1000,4),**ex)
+  # suoni generati periodici: il loop dura L ≈ 1,7 s, con la stessa formula di loop_len in make_edm.py
+  if folder.startswith('edm_') and ex.get('loop'):
+    m['lp']={int(f[:-4]):[1.2,round(1.2+round(440*2**((int(f[:-4])-69)/12)*1.7)/(440*2**((int(f[:-4])-69)/12)),6)] for f in os.listdir(folder)}
   meta.append(m);data[id]={int(f[:-4]):base64.b64encode(open(f'{folder}/{f}','rb').read()).decode() for f in os.listdir(folder)}
-for id,name,folder,mp,gain in [('batteria','Batteria','lm2',LM,.55),('808','Drum machine 808','tr808',TR,1.1)]:
-  meta.append(dict(id=id,name=name,cat='Batterie',gain=gain,off=0,drum=1))
+for id,name,cat,folder,mp,gain in [('batteria','Batteria','Batterie','lm2',LM,.55),('808','Drum machine 808','Batterie','tr808',TR,1.1),('house909','House 909','EDM','house909',H909,.5)]:
+  meta.append(dict(id=id,name=name,cat=cat,gain=gain,off=0,drum=1))
   data[id]={k:base64.b64encode(open(f'{folder}/{v}.ogg','rb').read()).decode() for k,v in mp.items()}
+# campioni del drop (boom e piatto, tools/fetch_edm.py): non sono suoni da suonare, li usa il drop su ▶
+data['drop_fx']={k:base64.b64encode(open(f'drop_fx/{k}.ogg','rb').read()).decode() for k in('boom','crash')}
 mul={'organo':.5,'coro':.65,'archi':1.5,'pad':1.4,'808':.6,'batteria':.75,'synthbass':1.2,'piano':1.15,'rhodes':1.15,'vibra':1.1,
- 'synthbass2':.9,'synthbrass':.85,'polysynth':1.1,'sweep':1.3}
+ 'synthbass2':.9,'synthbrass':.85,'polysynth':1.1,'sweep':1.3,'supersaw':.85,'house909':.85}
 for x in meta:x['gain']=round(x['gain']*mul.get(x['id'],1),2)
 open('../src/sounds_meta.js','w').write('const SOUNDS='+json.dumps(meta,ensure_ascii=False)+';\n')
 open('../src/sounds_data.js','w').write('const SAMPLE_DATA='+json.dumps(data,separators=(',',':'))+';\n')

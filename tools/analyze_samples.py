@@ -14,7 +14,9 @@ def dec_chromium(f):
   global _pg
   if _pg is None:
     from playwright.sync_api import sync_playwright
-    _pg=sync_playwright().start().chromium.launch().new_page()
+    pw=sync_playwright().start()
+    try:_pg=pw.chromium.launch().new_page()
+    except Exception:_pg=pw.chromium.launch(channel='chrome').new_page() # senza il Chromium di Playwright: Chrome installato
   r=_pg.evaluate(DECODE_JS,base64.b64encode(open(f,'rb').read()).decode())
   return np.frombuffer(base64.b64decode(r),dtype=np.float32)
 dec=dec_ffmpeg if shutil.which('ffmpeg') else dec_chromium

@@ -1,7 +1,9 @@
 // ---------- Audio ----------
-let ctx,sr,node,core=null,ready=false,masterIn,masterOut,cutF,dry,wet,noiseBuf,liveBus=[],usingWorklet=false;
-const SET={sound:0,cut:1,rev:.25,master:.9,oct:0,quant:4};
-function loadSet(){try{Object.assign(SET,JSON.parse(localStorage.getItem("giro5.set")||"{}"))}catch(_){}SET.sound=Math.min(SET.sound|0,SOUNDS.length-1);delete SET.latMs}
+let ctx,sr,node,core=null,ready=false,masterIn,masterOut,cutF,dry,wet,noiseBuf,liveBus=[],usingWorklet=false,bHP,dropG,fxBus,lim,safeClip,PG;
+const SET={sound:0,cut:1,rev:.12,master:.9,oct:0,quant:4,mix:2};
+// mix: 2 = mix più grosso; chi aveva le impostazioni di prima riparte col riverbero più basso
+function loadSet(){try{Object.assign(SET,JSON.parse(localStorage.getItem("giro5.set")||"{}"))}catch(_){}SET.sound=Math.min(SET.sound|0,SOUNDS.length-1);delete SET.latMs;
+ if(SET.mix!==2){SET.rev=Math.min(SET.rev,.12);SET.mix=2}}
 function saveSet(){SET.sid=SOUNDS[SET.sound]?.id;try{localStorage.setItem("giro5.set",JSON.stringify(SET))}catch(_){}}
 
 async function initAudio(){
@@ -11,7 +13,18 @@ async function initAudio(){
  const comp=ctx.createDynamicsCompressor();comp.threshold.value=-12;comp.ratio.value=4;comp.attack.value=.004;comp.release.value=.2;
  dry=ctx.createGain();wet=ctx.createGain();const conv=ctx.createConvolver();conv.buffer=impulse(2.4);
  masterOut=ctx.createGain();
- DJ=makeDJ(DJV);masterIn.connect(DJ.in);DJ.out.connect(cutF);cutF.connect(dry);cutF.connect(conv);conv.connect(wet);dry.connect(comp);wet.connect(comp);comp.connect(masterOut);masterOut.connect(ctx.destination);tapMaster();
+ // salita del drop: passa-alto che si apre (bHP) e silenzio prima dell'1 (dropG); riser e impatto entrano dopo (fxBus)
+ bHP=ctx.createBiquadFilter();bHP.type="highpass";bHP.frequency.value=10;bHP.Q.value=.7;dropG=ctx.createGain();fxBus=ctx.createGain();
+ // mix più grosso: saturazione morbida prima del compressore e limitatore in fondo (con tanti strati non distorce)
+ const satIn=ctx.createGain(),sat=ctx.createWaveShaper();satIn.gain.value=.5;sat.curve=satCurve(.8);sat.oversample="2x";
+ lim=ctx.createDynamicsCompressor();lim.threshold.value=-1.5;lim.knee.value=0;lim.ratio.value=20;lim.attack.value=.001;lim.release.value=.08;
+ DJ=makeDJ(DJV);masterIn.connect(DJ.in);DJ.out.connect(cutF);cutF.connect(bHP);bHP.connect(dry);bHP.connect(conv);conv.connect(wet);
+ dry.connect(satIn);wet.connect(satIn);satIn.connect(sat);sat.connect(comp);comp.connect(masterOut);
+ // protezione finale: lineare fino a 0,9, poi si piega dolcemente; non supera mai il fondo scala
+ safeClip=ctx.createWaveShaper();safeClip.curve=clipCurve();
+ masterOut.connect(dropG);dropG.connect(lim);fxBus.connect(lim);lim.connect(safeClip);safeClip.connect(ctx.destination);tapMaster();
+ // pompa sul mix: ci passano i loop che non sono di batteria (routeLoops), così la cassa resta piena e il resto «respira»
+ PG={pump:ctx.createGain(),pumpAmt:ctx.createGain(),pumpOsc:null};PG.pumpAmt.gain.value=0;PG.pumpAmt.connect(PG.pump.gain);PG.pump.connect(masterIn);
  // tre bus per il suono dal vivo: sentito subito e registrabile dal looper
  for(let b=0;b<3;b++){const g=ctx.createGain();g.channelCount=1;g.channelCountMode="explicit";g.connect(masterIn);liveBus.push(g)}
  try{
@@ -36,45 +49,44 @@ registerProcessor("giro-looper",GiroLooper);`;
   node.onaudioprocess=e=>{const ins=[0,1,2].map(c=>e.inputBuffer.getChannelData(c)),o=e.outputBuffer.getChannelData(0);
    core.process(ins,o,Math.round(e.playbackTime*sr),o.length,e.outputBuffer.getChannelData(1));if(core.msgs.length){const m=core.msgs;core.msgs=[];m.forEach(onCoreMsg)}};
  }
- if(usingWorklet)for(let i=0;i<NL;i++){const g=ctx.createGain();node.connect(g,i);g.connect(masterIn);loopOut.push(g)}
- else node.connect(masterIn);
- applyMix();ready=true;
+ if(usingWorklet)for(let i=0;i<NL;i++){const g=ctx.createGain();node.connect(g,i);g.connect(masterIn);loopOut.push(g);loopTo.push(masterIn)}
+ else node.connect(PG.pump); // un'uscita sola: col ripiego la pompa prende tutti i loop
+ applyMix();ready=true;loadFx();
  loadSound(SET.sound).then(preloadAll,preloadAll);restoreSession();
  setInterval(tick,20);
 }
 // tr: buffer da passare al worklet senza copiarli (il mittente non li usa più)
 function send(c,tr){if(!ready)return;if(usingWorklet)node.port.postMessage(c,tr||[]);else core.cmd(c)}
 function applyMix(){if(!ctx)return;const t=ctx.currentTime;
- cutF.frequency.setTargetAtTime(200*Math.pow(100,SET.cut),t,.02);wet.gain.setTargetAtTime(SET.rev*.5+DJV[2]*.8,t,.02);masterOut.gain.setTargetAtTime(SET.master,t,.02)}
+ cutF.frequency.setTargetAtTime(200*Math.pow(100,SET.cut),t,.02);wet.gain.setTargetAtTime(SET.rev*.5+DJV[2]*.8,t,.02);masterOut.gain.setTargetAtTime(SET.master*1.4,t,.02)} // +3 dB: i picchi li tiene il limitatore
+// saturazione: y = tanh(k·u)/k con u = 2x (l'ingresso arriva dimezzato): lineare a basso volume, morbida sui picchi
+function clipCurve(){const n=4096,c=new Float32Array(n);for(let j=0;j<n;j++){const x=j/(n-1)*2-1,a=Math.abs(x);c[j]=Math.sign(x)*(a<.9?a:.9+.1*Math.tanh((a-.9)/.1))}return c}
+function satCurve(k){const n=2048,c=new Float32Array(n);for(let j=0;j<n;j++){const u=(j/(n-1)*2-1)*2;c[j]=Math.tanh(k*u)/k}return c}
 
 // ---------- Effetti DJ: su tutto il mix o sul singolo loop ----------
-// 1 filtro · 2 eco · 3 riverbero · 4 flanger · 5 crusher · 6 trance gate · 7 roll · 8 volume (tastiera sul mix, del loop sul loop).
+// 1 filtro · 2 eco · 3 riverbero · 4 pompa (sidechain) · 5 crusher · 6 wobble · 7 roll · 8 volume (tastiera sul mix, del loop sul loop).
 // Tutti nodi nativi del browser (leggeri). A manopole spente (filtro al centro) il suono passa com'era.
 // Ambito "mix": la catena DJ fra masterIn e il filtro generale. Ambito "loop": ogni loop esce dal worklet su
 // un'uscita sua, che passa per una catena tutta sua, creata al primo effetto. Cambiando loop selezionato,
 // quello di prima tiene i suoi effetti e le manopole passano al nuovo.
-const DJ_NAMES=["FILTRO","ECO","RIVERBERO","FLANGER","CRUSHER","GATE","ROLL","TASTIERA"];
+const DJ_NAMES=["FILTRO","ECO","RIVERBERO","POMPA","CRUSHER","WOBBLE","ROLL","TASTIERA"];
 const DJV=[0,0,0,0,0,0,0,1]; // valori del mix: filtro -1…1 (0 = spento), gli altri 0…1; la tastiera parte al massimo
 let DJ=null,fxScope="mix",revL=null;
-const LDJ=Array(8).fill(null),loopOut=[]; // catene dei singoli loop (null = nessun effetto) e uscite dei loop
-const ROLL_NAMES={1:"1/4",2:"1/8",4:"1/16",8:"1/32"};
+const LDJ=Array(8).fill(null),loopOut=[],loopTo=[]; // catene dei singoli loop (null = nessun effetto), uscite dei loop e dove vanno
+const ROLL_NAMES={1:"1/4",2:"1/8",4:"1/16",8:"1/32"},WB_NAMES={1:"1/4",2:"1/8",3:"1/8T",4:"1/16"};
 function makeDJ(v){const c=ctx,g=v=>{const n=c.createGain();n.gain.value=v;return n};
  const D={v,rollK:0,in:g(1),out:g(1),rev:g(0),crush:c.createWaveShaper(),lp:c.createBiquadFilter(),hp:c.createBiquadFilter()};
  D.lp.type="lowpass";D.lp.frequency.value=22000;D.lp.Q.value=.7;D.hp.type="highpass";D.hp.frequency.value=10;D.hp.Q.value=.7;
- // flanger: ritardo corto modulato da un LFO, sommato al segnale diretto
- D.flDry=g(1);D.flWet=g(0);D.flFb=g(0);D.fl=g(1);D.flDel=c.createDelay(.05);D.flDel.delayTime.value=.004;
- D.flLfo=c.createOscillator();D.flLfo.frequency.value=.18;D.flDepth=g(.0025);D.flLfo.connect(D.flDepth);D.flDepth.connect(D.flDel.delayTime);D.flLfo.start();
- // trance gate: un'onda quadra a tempo (ammorbidita) che apre e chiude il volume
- D.gate=g(1);D.gateAmt=g(0);D.gateLP=c.createBiquadFilter();D.gateLP.type="lowpass";D.gateLP.frequency.value=60;
- D.gateLP.connect(D.gateAmt);D.gateAmt.connect(D.gate.gain);D.gateOsc=null;
+ // wobble: passa-basso risonante che si apre e chiude a tempo (dubstep); l'oscillatore muove il detune (in cent)
+ D.wb=c.createBiquadFilter();D.wb.type="lowpass";D.wb.frequency.value=22000;D.wb.Q.value=.7;D.wbDepth=g(0);D.wbDepth.connect(D.wb.detune);D.wbOsc=null;D.wbK=0;
+ // pompa: il volume si abbassa a ogni battito e risale, come un sidechain sulla cassa (pumpOsc dà la forma)
+ D.pump=g(1);D.pumpAmt=g(0);D.pumpAmt.connect(D.pump.gain);D.pumpOsc=null;
  // roll: una linea di ritardo lunga quanto il pezzo, che a un certo punto si richiude su sé stessa
  D.rDry=g(1);D.rIn=g(1);D.rFb=g(0);D.rWet=g(0);D.r=g(1);D.rDel=c.createDelay(2.5);
  // eco: mandata con ritardo a tempo e ritorno
  D.eDel=c.createDelay(3);D.eDel.delayTime.value=Math.min(2.9,.75*beatS());D.eFb=g(0);D.eWet=g(0);
- D.in.connect(D.crush);D.crush.connect(D.lp);D.lp.connect(D.hp);
- D.hp.connect(D.flDry);D.hp.connect(D.flDel);D.flDel.connect(D.flWet);D.flDel.connect(D.flFb);D.flFb.connect(D.flDel);
- D.flDry.connect(D.fl);D.flWet.connect(D.fl);D.fl.connect(D.gate);
- D.gate.connect(D.rDry);D.gate.connect(D.rIn);D.rIn.connect(D.rDel);D.rDel.connect(D.rFb);D.rFb.connect(D.rDel);D.rDel.connect(D.rWet);
+ D.in.connect(D.crush);D.crush.connect(D.lp);D.lp.connect(D.hp);D.hp.connect(D.wb);D.wb.connect(D.pump);
+ D.pump.connect(D.rDry);D.pump.connect(D.rIn);D.rIn.connect(D.rDel);D.rDel.connect(D.rFb);D.rFb.connect(D.rDel);D.rDel.connect(D.rWet);
  D.rDry.connect(D.r);D.rWet.connect(D.r);
  D.r.connect(D.out);D.r.connect(D.eDel);D.eDel.connect(D.eFb);D.eFb.connect(D.eDel);D.eDel.connect(D.eWet);D.eWet.connect(D.out);
  D.out.connect(D.rev); // mandata al riverbero: la usano solo i loop (il mix ha il suo in applyMix)
@@ -82,21 +94,42 @@ function makeDJ(v){const c=ctx,g=v=>{const n=c.createGain();n.gain.value=v;retur
 // catena del loop i: la crea e ci fa passare l'uscita del loop (solo con l'AudioWorklet, che ha un'uscita per loop)
 function loopDJ(i){if(LDJ[i])return LDJ[i];if(!usingWorklet||!loopOut[i])return null;
  if(!revL){revL=ctx.createGain();const cv=ctx.createConvolver();cv.buffer=impulse(2.4);revL.connect(cv);cv.connect(masterOut)}
- const D=makeDJ([0,0,0,0,0,0,0,1]);D.rev.connect(revL);D.out.connect(masterIn);
+ const D=makeDJ([0,0,0,0,0,0,0,1]);D.rev.connect(revL);D.out.connect(loopTo[i]);
  loopOut[i].disconnect();loopOut[i].connect(D.in);return LDJ[i]=D}
 function dropLoopDJ(i){const D=LDJ[i];if(!D)return;LDJ[i]=null;
- loopOut[i].disconnect();loopOut[i].connect(masterIn);D.out.disconnect();D.rev.disconnect();
- if(D.gateOsc)try{D.gateOsc.stop()}catch(_){}try{D.flLfo.stop()}catch(_){}}
+ loopOut[i].disconnect();loopOut[i].connect(loopTo[i]);D.out.disconnect();D.rev.disconnect();
+ for(const o of[D.pumpOsc,D.wbOsc])if(o)try{o.stop()}catch(_){}}
 const djAll=()=>[DJ,...LDJ].filter(Boolean);
-const fxActive=D=>!!D&&(D.rollK>0||D.v.some((x,i)=>i===0?x!==0:i<7&&x>.02));
+// i loop melodici vanno nella pompa del mix (PG), quelli di batteria direttamente al mix
+function routeLoops(){G.loops.forEach((L,i)=>{if(!loopOut[i])return;const want=L.has&&!SOUNDS[L.sound]?.drum?PG.pump:masterIn;if(loopTo[i]===want)return;
+ const src=LDJ[i]?LDJ[i].out:loopOut[i];src.disconnect(loopTo[i]);src.connect(want);loopTo[i]=want})}
+const fxActive=D=>!!D&&(D.rollK>0||D.wbK>0||D.v.some((x,i)=>i===0?x!==0:i<5&&x>.02));
 const beatS=()=>G.base?G.base/G.beats/sr:.5;
-// eco, gate e roll seguono il tempo: da richiamare quando il tempo o l'1 cambiano
-function djRetime(){if(!DJ)return;djAll().forEach(djRetimeOne)}
-function djRetimeOne(D){const t=ctx.currentTime;
+// forma della pompa su un battito: niente all'attacco (la cassa passa), giù del tutto al 3%, risale entro il 60%.
+// L'oscillatore dà e(t) − media; il guadagno è 1 − d·e(t) = (1 − d·media) − d·(e − media).
+let pumpWave=null,PUMP_MEAN=0,cosWave=null;
+function pumpShape(){if(pumpWave)return pumpWave;const N=512,K=48,e=new Float32Array(N);let m=0;
+ for(let j=0;j<N;j++){const p=j/N;e[j]=p<.03?p/.03:Math.pow(1-Math.min(1,(p-.03)/.57),2);m+=e[j]/N}
+ const re=new Float32Array(K+1),im=new Float32Array(K+1);
+ for(let k=1;k<=K;k++){let a=0,b=0;for(let j=0;j<N;j++){const w=2*Math.PI*k*j/N;a+=(e[j]-m)*Math.cos(w);b+=(e[j]-m)*Math.sin(w)}re[k]=2*a/N;im[k]=2*b/N}
+ PUMP_MEAN=m;return pumpWave=ctx.createPeriodicWave(re,im,{disableNormalization:true})}
+// profondità della pompa (fino all'85% di abbassamento) dal valore della manopola, dal tempo t.
+// Sul mix la pompa è PG (solo i loop melodici), sul singolo loop quella della sua catena.
+const pumpOf=D=>D===DJ?PG:D;
+function pumpSet(D,t,tau=.02){pumpShape();const P=pumpOf(D),d=G.base&&D.v[3]>.02?.85*D.v[3]:0;P.pump.gain.setTargetAtTime(1-d*PUMP_MEAN,t,tau);P.pumpAmt.gain.setTargetAtTime(-d,t,tau)}
+// eco, pompa, wobble e roll seguono il tempo: da richiamare quando il tempo o l'1 cambiano.
+// at: frame da cui far partire pompa e wobble (deve stare su un battito), altrimenti il prossimo battito
+function djRetime(){if(!DJ)return;djAll().forEach(D=>djRetimeOne(D))}
+function djRetimeOne(D,at){const t=ctx.currentTime,b=G.base?G.base/G.beats:0;
  D.eDel.delayTime.setTargetAtTime(Math.min(2.9,.75*beatS()),t,.05);
- if(D.gateOsc){try{D.gateOsc.stop()}catch(_){}D.gateOsc.disconnect();D.gateOsc=null}
- if(D.v[5]>0&&G.base){const o=ctx.createOscillator();o.type="square";o.frequency.value=2/beatS(); // aperto un sedicesimo, chiuso un sedicesimo
-  const b=G.base/G.beats,T=(G.origin+Math.ceil((nowF()+sr*.02-G.origin)/b)*b)/sr;o.connect(D.gateLP);o.start(T);D.gateOsc=o}
+ const T=b?(at??G.origin+Math.ceil((nowF()+sr*.02-G.origin)/b)*b)/sr:0;
+ const P=pumpOf(D);for(const [O,k] of[[P,"pumpOsc"],[D,"wbOsc"]])if(O[k]){try{O[k].stop()}catch(_){}O[k].disconnect();O[k]=null}
+ if(D.v[3]>.02&&G.base){const o=ctx.createOscillator();o.setPeriodicWave(pumpShape());o.frequency.value=1/beatS();o.connect(P.pumpAmt);o.start(T);P.pumpOsc=o}
+ pumpSet(D,t);
+ // wobble: coseno (all'1 il filtro è aperto), da 450 Hz su e giù di 2600 cent, wbK oscillazioni per battito
+ const wb=D.wbK&&G.base;D.wb.frequency.setTargetAtTime(wb?450:22000,t,.01);D.wb.Q.setTargetAtTime(wb?6:.7,t,.01);D.wbDepth.gain.setTargetAtTime(wb?2600:0,t,.01);
+ if(wb){if(!cosWave)cosWave=ctx.createPeriodicWave(new Float32Array([0,1]),new Float32Array(2));
+  const o=ctx.createOscillator();o.setPeriodicWave(cosWave);o.frequency.value=D.wbK/beatS();o.connect(D.wbDepth);o.start(T);D.wbOsc=o}
  if(D.rollK){const k=D.rollK;D.rollK=0;djRoll(D,k)}}
 function djRoll(D,k){if(!G.base||!G.running)k=0;if(k===D.rollK)return;D.rollK=k;
  const t=ctx.currentTime;[D.rDry,D.rIn,D.rWet,D.rFb].forEach(n=>n.gain.cancelScheduledValues(t));D.rDel.delayTime.cancelScheduledValues(t);
@@ -115,9 +148,9 @@ function djApply(D,i){const t=ctx.currentTime,a=D.v[i];
    D.lp.Q.setTargetAtTime(a<0?.7+u*1.3:.7,t,.05);D.hp.Q.setTargetAtTime(a>0?.7+u*1.3:.7,t,.05);break}
   case 1:D.eWet.gain.setTargetAtTime(a*.55,t,.03);D.eFb.gain.setTargetAtTime(a>0?.15+a*.55:0,t,.03);D.eDel.delayTime.setTargetAtTime(Math.min(2.9,.75*beatS()),t,.05);break;
   case 2:if(D===DJ)applyMix();else D.rev.gain.setTargetAtTime(a*.8,t,.03);break;
-  case 3:D.flWet.gain.setTargetAtTime(a*.7,t,.03);D.flFb.gain.setTargetAtTime(a*.55,t,.03);break;
+  case 3:if((a>.02&&!!G.base)!==!!pumpOf(D).pumpOsc)djRetimeOne(D);else pumpSet(D,t);break;
   case 4:D.crush.curve=crushCurve(a);break;
-  case 5:{const was=!!D.gateOsc;D.gate.gain.setTargetAtTime(1-a/2,t,.02);D.gateAmt.gain.setTargetAtTime(a/2,t,.02);if((a>0)!==was)djRetimeOne(D);break}
+  case 5:{const k=a<.1?0:[1,2,3,4][Math.min(3,Math.floor((a-.1)/.9*4))];if(k!==D.wbK){D.wbK=k;djRetimeOne(D)}break}
   case 6:djRoll(D,a<.1?0:[1,2,4,8][Math.min(3,Math.floor((a-.1)/.9*4))]);break}}
 function djKnob(i,v){let x=v/127;
  if(i===0){x=Math.max(-1,Math.min(1,(v-64)/63));if(Math.abs(x)<.04)x=0}
@@ -127,16 +160,17 @@ function djKnob(i,v){let x=v/127;
   if(!ready)return;const D=loopDJ(n);
   if(!D){fxScope="mix";flashHint("Effetti sul singolo loop non disponibili su questo PC: torno a tutto il mix.");render();return}
   D.v[i]=x;djApply(D,i);flashHint(`Loop ${n+1} · effetto <b>${i+1} ${DJ_NAMES[i]}</b>: `+djText(i));render();return}
- DJV[i]=x;if(DJ)djApply(DJ,i);
+ DJV[i]=x;if(i===3)pumpAuto=false;if(DJ)djApply(DJ,i);
  flashHint(`Effetto <b>${i+1} ${DJ_NAMES[i]}</b>: `+djText(i));render()}
 // valori mostrati sulla striscia: quelli del mix o del loop selezionato
-function djView(){if(fxScope==="mix")return{v:DJV,rollK:DJ?DJ.rollK:0};
- const D=LDJ[G.sel];return{v:D?D.v:[0,0,0,0,0,0,0,0],rollK:D?D.rollK:0}}
+function djView(){if(fxScope==="mix")return{v:DJV,rollK:DJ?DJ.rollK:0,wbK:DJ?DJ.wbK:0};
+ const D=LDJ[G.sel];return{v:D?D.v:[0,0,0,0,0,0,0,0],rollK:D?D.rollK:0,wbK:D?D.wbK:0}}
 function djText(i){const V=djView(),a=V.v[i];
  if(i===7&&fxScope==="loop")return Math.round(G.loops[G.sel].vol*100)+"%";
  if(i===0)return a===0?"spento":a<0?"più scuro "+Math.round(-a*100)+"%":"più leggero "+Math.round(a*100)+"%";
  if(i===6)return V.rollK?"ripete "+ROLL_NAMES[V.rollK]:(G.base&&G.running?"spento":"serve un loop che suona");
- if(i===5&&a>0&&!G.base)return "serve un loop che suona";
+ if(i===5)return !V.wbK?"spento":G.base?"wobble "+WB_NAMES[V.wbK]:"serve un loop che suona";
+ if(i===3&&a>.02&&!G.base)return "serve un loop che suona";
  return a<.02&&i!==7?"spento":Math.round(a*100)+"%"}
 function setFxScope(m){fxScope=m;
  flashHint(m==="loop"?`Effetti DJ sul <b>loop selezionato</b> (ora il ${G.sel+1}). Cambiando loop, quello di prima tiene i suoi effetti.`:"Effetti DJ su <b>tutto il mix</b>.");render()}
@@ -154,7 +188,7 @@ function audioDelayMs(){return((ctx.outputLatency||0)+(ctx.baseLatency||0))*1000
 
 // ---------- Stato del looper ----------
 const NL=8;
-const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,dubTake:[],firstOn:[],cur:0,sel:0,ev:[],
+const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,dropAt:0,dubTake:[],firstOn:[],cur:0,sel:0,ev:[],
  loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,pan:0,fx:0,undo:0,redo:0}))};
 const anyHas=()=>G.loops.some(l=>l.has||l.state==="rec"||l.state==="closing");
 function Q(){let q=G.base,k=0;while(q/2>=sr*.9&&k<3){q/=2;k++}return Math.round(q)}
@@ -256,10 +290,10 @@ function stopAll(){const f=nowF();G.stopAt=0;
   if(L.state==="armed")L.state="empty";
   if(L.state==="dub")endDub(i);
   if(L.pend){L.muted=L.pend.muted;L.pend=null}
-  if(L.dropped){L.dropped=false;L.muted=false} // tolto dal drop: alla ripartenza suona di nuovo
+  if(L.dropped){L.dropped=false;L.muted=false} // tolto dal break: alla ripartenza suona di nuovo
   // un loop che sta chiudendo partirebbe al suo confine: lo spengo lì
   send({type:"gate",i,on:0,frame:L.state==="closing"?Math.max(f,L.end):f})});
- G.drop=false;buildCancel();G.running=false;rollAllOff();render()}
+ G.drop=false;buildCancel();pumpAutoOff();G.running=false;rollAllOff();render()}
 // ■ a loop avviati: si ferma tutto alla fine del giro, sul battere; ■ di nuovo: subito
 function stopButton(){if(!ready)return;
  if(G.stopAt||!G.running){const n=allNotesOff();if(G.stopAt||G.loops.some(l=>l.state==="rec"||l.state==="armed"))stopAll();else if(n)flashHint("Spente le note rimaste accese.");return}
@@ -278,14 +312,15 @@ function stopPress(){clearTimeout(stopHold);
  stopHold=setTimeout(()=>{if(!anyHas())return;flashHint("Continua a tenere premuto per <b>cancellare tutto</b>…");
   stopHold=setTimeout(()=>{stopHold=0;if(anyHas())clearAll()},1500)},500)}
 function stopRelease(){clearTimeout(stopHold);stopHold=0}
-function clearAll(){send({type:"reset"});saveSoon();G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();rollAllOff();djRetime();G.ev=[];
+function clearAll(){send({type:"reset"});saveSoon();G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();pumpAutoOff();rollAllOff();djRetime();G.ev=[];
  G.loops.forEach(L=>Object.assign(L,{state:"empty",has:false,muted:false,pend:null,dropped:false,peaks:null,undo:0,redo:0}));flashHint("Tutto cancellato. Il prossimo giro lo decidi tu.")}
 function playButton(){if(!ready)return;if(!G.base){flashHint(START_HINT);return}
  if(G.running){flashHint("Sta già suonando. <b>■</b> per fermare a fine giro.");return}playAll()}
 
-// ---------- Drop e build-up: ▶ mentre i loop suonano ----------
-// tocco = drop: al prossimo 1 resta solo il loop selezionato; ritocco = tutto rientra sul prossimo 1.
-// tenuto = build-up: il filtro si chiude piano; quando lasci si riapre di colpo sul prossimo 1 (e finisce il drop).
+// ---------- Break, salita e drop: ▶ mentre i loop suonano ----------
+// tocco = break: al prossimo 1 resta solo il loop selezionato (G.drop); ritocco = tutto rientra sul prossimo 1.
+// tenuto = salita: passa-alto che si apre, rumore che sale, rullata che accelera (2 battute);
+// lasci = DROP: mezzo battito di silenzio, poi sull'1 impatto (boom + piatto), rientra tutto e parte la pompa.
 const barF=()=>G.base*Math.min(1,4/G.beats);
 function nextBar(f){const b=barF();return G.origin+Math.ceil((f-G.origin+sr*.03)/b)*b}
 function dropToggle(){if(!G.running||G.stopAt)return;const at=nextBar(nowF());
@@ -295,19 +330,46 @@ function dropToggle(){if(!G.running||G.stopAt)return;const at=nextBar(nowF());
   if(!ids.length){flashHint("Niente da togliere: suona solo il loop selezionato.");return}
   G.drop=true;ids.forEach(i=>{const L=G.loops[i];L.dropped=true;L.pend={muted:true,at};send({type:"gate",i,on:0,frame:at})})}
  render()}
-let building=false;const FILTER_Q=1;
-const cutHz=()=>200*Math.pow(100,SET.cut);
+// bld: la salita in corso (riser, rullata da start, prossimo colpo next, ultimo colpo prima di end); G.dropAt: frame del drop
+let building=false,bld=null,pumpAuto=false;
 function holdParam(p,t){try{p.cancelAndHoldAtTime(t)}catch(_){p.cancelScheduledValues(t);p.setValueAtTime(p.value,t)}}
-function buildStart(){if(!G.running||G.stopAt)return;building=true;
- const t=ctx.currentTime,dur=Math.max(2,Math.min(8,2*barF()/sr)),f=cutF.frequency,q=cutF.Q;
- holdParam(f,t);f.exponentialRampToValueAtTime(Math.min(f.value,300),t+dur);
- holdParam(q,t);q.linearRampToValueAtTime(8,t+dur);render()}
+function noise(){if(noiseBuf)return noiseBuf;const n=sr*2,b=ctx.createBuffer(1,n,sr),d=b.getChannelData(0);for(let k=0;k<n;k++)d[k]=Math.random()*2-1;return noiseBuf=b}
+// campioni del drop (boom e piatto, CC0 da Sonic Pi), incorporati in SAMPLE_DATA.drop_fx
+const FX={};
+function loadFx(){const d=SAMPLE_DATA.drop_fx;if(d)for(const k in d)ctx.decodeAudioData(b64buf(d[k])).then(b=>{FX[k]=b}).catch(()=>{})}
+function playBuf(b,ts,v,out){const s=ctx.createBufferSource(),g=ctx.createGain();s.buffer=b;g.gain.value=v;s.connect(g);g.connect(out);s.start(ts);s.onended=()=>g.disconnect()}
+// rullante della rullata: quello del kit house, se no della batteria
+function snare(){for(const id of["house909","batteria"]){const s=SOUNDS.find(x=>x.id===id),e=BUF[id]&&BUF[id].find(x=>x[0]===2);if(e)return[e[1],s.gain]}return null}
+function buildStart(){if(!G.running||G.stopAt||G.dropAt)return;building=true;
+ const t=ctx.currentTime,b=G.base/G.beats,dur=Math.max(2,Math.min(8,8*b/sr));
+ holdParam(bHP.frequency,t);bHP.frequency.exponentialRampToValueAtTime(1500,t+dur);holdParam(bHP.Q,t);bHP.Q.linearRampToValueAtTime(4,t+dur);
+ // riser: rumore in un passa-banda che sale da 400 Hz a 9 kHz, sempre più forte
+ const src=ctx.createBufferSource(),bp=ctx.createBiquadFilter(),g=ctx.createGain();src.buffer=noise();src.loop=true;bp.type="bandpass";bp.Q.value=1.2;
+ bp.frequency.setValueAtTime(400,t);bp.frequency.exponentialRampToValueAtTime(9000,t+dur);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.3,t+dur);
+ src.connect(bp);bp.connect(g);g.connect(fxBus);src.start(t);
+ const start=G.origin+Math.ceil((nowF()+sr*.02-G.origin)/b)*b;bld={src,g,start,next:start,end:Infinity};rollTick();render()}
+// rullata a tempo: 4 battiti a quarti, 2 a ottavi, 1 a sedicesimi, 1 a trentaduesimi, poi sedicesimi finché tieni; sempre più forte
+function rollTick(){if(!bld)return;const b=G.base/G.beats,until=nowF()+sr*.12,sn=snare();
+ while(bld.next<until&&bld.next<bld.end){const e=(bld.next-bld.start)/b,step=e<4?1:e<6?.5:e<7?.25:e<8?.125:.25;
+  if(sn&&bld.next>=nowF())playBuf(sn[0],bld.next/sr,sn[1]*(.35+.65*Math.min(1,e/8)),masterIn);
+  bld.next+=Math.round(step*b)}}
 function buildEnd(){if(!building)return;building=false;
- const T=nextBar(nowF())/sr,t=ctx.currentTime;
- holdParam(cutF.frequency,t);holdParam(cutF.Q,t);cutF.frequency.setValueAtTime(cutHz(),T);cutF.Q.setValueAtTime(FILTER_Q,T);
- if(G.drop)dropToggle();render()}
-function buildCancel(){if(!building||!ctx)return;building=false;const t=ctx.currentTime;
- holdParam(cutF.frequency,t);holdParam(cutF.Q,t);cutF.frequency.setTargetAtTime(cutHz(),t,.05);cutF.Q.setTargetAtTime(FILTER_Q,t,.05)}
+ const b=G.base/G.beats,T=nextBar(nowF()+b/2),gs=(T-b/2)/sr,Ts=T/sr;
+ // la salita continua fino al silenzio, mezzo battito prima dell'1
+ if(bld){bld.end=T-b/2;holdParam(bld.g.gain,gs);bld.g.gain.linearRampToValueAtTime(.0001,gs+.01);bld.src.stop(gs+.05)}
+ dropG.gain.cancelScheduledValues(ctx.currentTime);dropG.gain.setValueAtTime(1,gs);dropG.gain.linearRampToValueAtTime(0,gs+.006);dropG.gain.setValueAtTime(0,Ts-.002);dropG.gain.linearRampToValueAtTime(1,Ts+.001);
+ holdParam(bHP.frequency,Ts);holdParam(bHP.Q,Ts);bHP.frequency.setValueAtTime(10,Ts);bHP.Q.setValueAtTime(.7,Ts);
+ if(FX.boom)playBuf(FX.boom,Ts,1,fxBus);if(FX.crash)playBuf(FX.crash,Ts,.5,fxBus);
+ // i loop tolti col break rientrano proprio sul drop
+ if(G.drop){G.drop=false;G.loops.forEach((L,i)=>{if(!L.dropped)return;L.dropped=false;L.pend={muted:false,at:T};send({type:"gate",i,on:1,frame:T})})}
+ // pompa sul mix dal drop, se era spenta (si spegne con ■ o girando la manopola 4)
+ if(DJV[3]<=.02){DJV[3]=.6;pumpAuto=true;pumpSet(DJ,Ts,.005);djRetimeOne(DJ,T)}
+ G.dropAt=T;render()}
+function pumpAutoOff(){if(!pumpAuto||!DJ)return;pumpAuto=false;DJV[3]=0;djApply(DJ,3)}
+function buildCancel(){if(!ctx)return;const t=ctx.currentTime;building=false;G.dropAt=0;
+ if(bld){bld.g.gain.cancelScheduledValues(t);bld.g.gain.setTargetAtTime(0,t,.02);try{bld.src.stop(t+.1)}catch(_){}bld=null}
+ holdParam(bHP.frequency,t);holdParam(bHP.Q,t);bHP.frequency.setTargetAtTime(10,t,.03);bHP.Q.setTargetAtTime(.7,t,.03);
+ dropG.gain.cancelScheduledValues(t);dropG.gain.setTargetAtTime(1,t,.005)}
 // ▶ dall'Axiom distingue tocco e tenuto solo se il tasto manda anche il rilascio; altrimenti ogni pressione è un tocco
 let playHoldT=0,playHeld=false,playRel=false;
 function playDown(canHold){if(!ready)return;
@@ -341,7 +403,7 @@ let perf=null,perfTap=null;
 function tapMaster(){perfTap=ctx.createScriptProcessor(4096,2,2);const mute=ctx.createGain();mute.gain.value=0;
  perfTap.onaudioprocess=e=>{if(!perf)return;const a=e.inputBuffer.getChannelData(0),b=e.inputBuffer.getChannelData(1),n=a.length,d=new Int16Array(n*2);
   for(let k=0;k<n;k++){d[2*k]=Math.max(-1,Math.min(1,a[k]))*32767;d[2*k+1]=Math.max(-1,Math.min(1,b[k]))*32767}perf.chunks.push(d);perf.n+=n};
- masterOut.connect(perfTap);perfTap.connect(mute);mute.connect(ctx.destination)}
+ safeClip.connect(perfTap);perfTap.connect(mute);mute.connect(ctx.destination)}
 const perfSecs=()=>perf?perf.n/sr:0;
 function perfToggle(){if(!ready)return;
  if(!perf){perf={chunks:[],n:0};flashHint("<b>Registro l'esibizione</b>: tutto quello che suoni finisce nel file. Ripremi per fermare e salvare.");render();return}
@@ -437,6 +499,7 @@ function onCoreMsg(m){
 
 let perfLast=-1;
 function tick(){if(!ready)return;const f=nowF();let ch=false;
+ rollTick();routeLoops();if(G.dropAt&&f>=G.dropAt){G.dropAt=0;bld=null;flashHint("<b>DROP!</b>")}
  if(perf&&Math.floor(perfSecs())!==perfLast){perfLast=Math.floor(perfSecs());render()}
  if(G.stopAt&&f>=G.stopAt){stopAll();ch=true}
  // un loop cancellato perde anche i suoi effetti
@@ -514,7 +577,7 @@ let knobMode="vol",hcMode="midi";
 function setKnobMode(m){knobMode=m;render();
  flashHint({vol:"Manopole: <b>VOLUME</b> dei loop.",pan:"Manopole: <b>PAN</b> — gira per spostare il loop a sinistra o a destra.",
   fx:"Manopole: <b>FILTRO</b> — a sinistra il loop si scurisce, a destra si alleggerisce, al centro niente.",
-  dj:"Manopole: <b>EFFETTI DJ</b> sul mix — 1 filtro · 2 eco · 3 riverbero · 4 flanger · 5 crusher · 6 gate · 7 roll · 8 tastiera."}[m])}
+  dj:"Manopole: <b>EFFETTI DJ</b> sul mix — 1 filtro · 2 eco · 3 riverbero · 4 pompa · 5 crusher · 6 wobble · 7 roll · 8 tastiera."}[m])}
 function cycleKnobMode(){setKnobMode(KNOB_MODES[(KNOB_MODES.indexOf(knobMode)+1)%KNOB_MODES.length])}
 function hcModeButton(cc){
  if(cc===58){hcMode=hcMode==="vol"?"pan":"vol";setKnobMode(hcMode)}

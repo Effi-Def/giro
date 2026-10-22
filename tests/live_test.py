@@ -1,6 +1,6 @@
 # Comandi pensati per suonare dal vivo: ■ a fine giro, ■■ subito, ▶ solo da fermo, ■ tenuto = cancella tutto,
 # ▲▼ per famiglia e tasto centrale dentro la famiglia, pitch bend che seleziona il loop, battito visivo,
-# drop e build-up con ▶, rientro dei pad sull'1, modi delle manopole e messaggi HyperControl.
+# break, salita e drop con ▶, rientro dei pad sull'1, modi delle manopole e messaggi HyperControl.
 from pathlib import Path
 import asyncio,json
 from playwright.async_api import async_playwright
@@ -26,17 +26,21 @@ async def main():
           const pb=v=>onMIDI({data:[0xE0,v&127,v>>7]});
           G.sel=1;pb(10000);pb(14000);pb(16383);pb(14000);res.pbOnce=G.sel;pb(8192);pb(16383);pb(8192);res.pbAgain=G.sel;
           pb(0);pb(8192);res.pbDown=G.sel;res.pbPlaying=G.loops[0].state==="play"&&!G.loops[0].muted&&G.loops[1].state==="play"&&!G.loops[1].muted;
-          // drop: tocco breve di ▶ (rilascio già visto) -> al prossimo 1 resta solo il loop selezionato
+          // break: tocco breve di ▶ (rilascio già visto) -> al prossimo 1 resta solo il loop selezionato
           const onBar=at=>Math.abs((at-G.origin)%barF())<1;
           G.sel=1;cc(17,0);cc(17,127);await wait(100);cc(17,0);
           const L0=G.loops[0];res.dropPend=G.drop&&!!L0.pend&&L0.pend.muted&&onBar(L0.pend.at);
           const atD=L0.pend?L0.pend.at:0;while(nowF()<atD+sr*.08)await wait(5);
           res.dropped=L0.muted&&L0.dropped&&!G.loops[1].muted;
-          // build-up: ▶ tenuto chiude il filtro; al rilascio tutto rientra e il filtro si riapre sull'1
-          const f0=cutF.frequency.value;cc(17,127);await wait(1200);res.buildClosing=building&&cutF.frequency.value<f0*.8;
-          cc(17,0);res.returnPend=!G.drop&&!!L0.pend&&!L0.pend.muted&&onBar(L0.pend.at);
-          const atR=L0.pend?L0.pend.at:0;while(nowF()<atR+sr*.08)await wait(5);
-          res.back=!L0.muted&&!L0.dropped&&Math.abs(cutF.frequency.value-cutHz())<1;
+          // salita: ▶ tenuto apre il passa-alto, parte il riser e la rullata a tempo
+          const f0=bHP.frequency.value;cc(17,127);await wait(1200);
+          res.buildClosing=building&&bHP.frequency.value>f0*3&&!!bld&&bld.next>bld.start&&(bld.start-G.origin)%(G.base/G.beats)===0;
+          // drop: al rilascio mezzo battito di silenzio, poi sull'1 rientra tutto, il passa-alto si richiude e parte la pompa
+          cc(17,0);res.returnPend=!G.drop&&!!L0.pend&&!L0.pend.muted&&onBar(L0.pend.at)&&G.dropAt===L0.pend.at;
+          const atR=L0.pend?L0.pend.at:0,half=G.base/G.beats/2;while(nowF()<atR-half+sr*.04)await wait(2);res.gap=dropG.gain.value<.05;
+          while(nowF()<atR+sr*.08)await wait(5);
+          res.back=!L0.muted&&!L0.dropped&&bHP.frequency.value<20&&dropG.gain.value>.99&&!G.dropAt&&!bld;
+          res.autoPump=pumpAuto&&DJV[3]>.5&&!!PG.pumpOsc;
           // pad pieno: si ferma alla suddivisione, rientra sull'1 della battuta
           tap(0);const atS=L0.pend.at;while(nowF()<atS+sr*.05)await wait(5);tap(0);res.padOnOne=onBar(L0.pend.at);
           while(L0.pend)await wait(10);
@@ -53,18 +57,18 @@ async def main():
           const v0=G.loops[0].vol;kc(1,0);kc(2,127);kc(4,127);kc(5,127);kc(6,127);kc(7,60);kc(8,64);await wait(400);
           res.djBar=!document.querySelector('#djBar').hidden;res.djVolUntouched=G.loops[0].vol===v0;
           res.djFilter=DJ.lp.frequency.value<1000;res.djEcho=DJ.eWet.gain.value>.4&&DJ.eFb.gain.value>.5;
-          res.djFlanger=DJ.flWet.gain.value>.5;res.djCrush=!!DJ.crush.curve;res.djGate=!!DJ.gateOsc;
+          res.djPump=!!PG.pumpOsc&&PG.pumpAmt.gain.value<-.6&&!pumpAuto;res.djCrush=!!DJ.crush.curve;res.djWobble=DJ.wbK===4&&!!DJ.wbOsc;
           res.djRoll=DJ.rollK===2;res.djLive=Math.abs(DJV[7]-64/127)<1e-6;
           await wait(Math.round(G.base/G.beats/2/sr*1000)*2+150);res.djRollOn=DJ.rWet.gain.value===1&&DJ.rDry.gain.value===0;
           // tutto spento di nuovo: il suono torna com'era
           kc(1,64);kc(2,0);kc(4,0);kc(5,0);kc(6,0);kc(7,0);kc(8,127);await wait(400);
-          res.djOff=DJ.lp.frequency.value>15000&&DJ.hp.frequency.value<20&&DJ.eWet.gain.value<.01&&DJ.flWet.gain.value<.01&&!DJ.crush.curve&&!DJ.gateOsc&&DJ.rollK===0&&DJ.rDry.gain.value===1&&DJ.rWet.gain.value===0&&DJV[7]===1;
-          // effetti sul singolo loop: il loop 1 tiene l'eco, le manopole passano al loop 2 (flanger); la manopola 8 è il volume del loop
+          res.djOff=DJ.lp.frequency.value>15000&&DJ.hp.frequency.value<20&&DJ.eWet.gain.value<.01&&!PG.pumpOsc&&!DJ.crush.curve&&!DJ.wbOsc&&DJ.wbK===0&&DJ.rollK===0&&DJ.rDry.gain.value===1&&DJ.rWet.gain.value===0&&DJV[7]===1;
+          // effetti sul singolo loop: il loop 1 tiene l'eco, le manopole passano al loop 2 (pompa); la manopola 8 è il volume del loop
           G.sel=0;setFxScope('loop');kc(2,127);await wait(300);
           const an=ctx.createAnalyser();LDJ[0].out.connect(an);await wait(300);const buf=new Float32Array(2048);an.getFloatTimeDomainData(buf);
           res.fxLoopSound=buf.some(x=>Math.abs(x)>1e-4);
           G.sel=1;kc(4,127);kc(8,64);await wait(300);
-          res.fxLoopKeep=LDJ[0].eWet.gain.value>.4&&LDJ[0].flWet.gain.value<.01&&LDJ[1].flWet.gain.value>.5&&DJ.eWet.gain.value<.01&&DJ.flWet.gain.value<.01;
+          res.fxLoopKeep=LDJ[0].eWet.gain.value>.4&&!LDJ[0].pumpOsc&&!!LDJ[1].pumpOsc&&DJ.eWet.gain.value<.01&&!PG.pumpOsc;
           res.fxLoopVol=Math.abs(G.loops[1].vol-64/127)<1e-6&&DJV[7]===1;
           res.fxBadge=document.querySelector('.loop[data-loop="0"] .snm').textContent.endsWith('FX');
           setFxScope('mix');kc(2,127);await wait(100);stopAllFx();await wait(300);
@@ -76,11 +80,11 @@ async def main():
           // manopola 5 lasciata alta in VOLUME: passando a EFFETTI DJ non accende il crusher
           kc(5,120);setKnobMode("dj");cc(5,121);res.pickDj=!DJ.crush.curve;knob(4,102);
           // dopo STOP EFFETTI la manopola rimasta girata non riaccende l'effetto
-          kc(2,120);stopAllFx();cc(2,121);res.pickAfterStop=DJ.eWet.gain.value<.01&&DJV[1]===0;
+          kc(2,120);stopAllFx();cc(2,121);await wait(200);res.pickAfterStop=DJ.eWet.gain.value<.01&&DJV[1]===0;
           // note bloccate: «all notes off» dall'Axiom le spegne, anche col pedale
           setSustain(true);noteOn(67,.8);noteOff(67);onMIDI({data:[0xB0,123,0]});res.allOff=held.size===0&&!sustain;
           // dal telefono: tenuto = build-up, rilascio = si riapre
-          telCmd({c:'play',v:'down'});await wait(600);res.telBuild=building;telCmd({c:'play',v:'up'});res.telBuildEnd=!building;
+          telCmd({c:'play',v:'down'});await wait(600);res.telBuild=building;telCmd({c:'play',v:'up'});res.telBuildEnd=!building&&G.dropAt>0;
           const s0=SET.sound;hc(98,127);hc(98,0);res.hcCenter=SET.sound!==s0;
           onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad=!!G.loops[0].pend;
           onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad2=!G.loops[0].pend;
@@ -113,7 +117,7 @@ async def main():
         await pg.keyboard.press('c');r['keyC']=await pg.evaluate('fxScope==="loop"');await pg.keyboard.press('c')
         await pg.keyboard.down('a');await pg.evaluate('dispatchEvent(new Event("blur"))');r['blurOff']=await pg.evaluate('held.size===0&&pcHeld.size===0');await pg.keyboard.up('a')
         print(json.dumps(r,indent=1));print('errori',errs)
-        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'MANOPOLE EFFETTI DJ','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djFlanger':True,'djCrush':True,'djGate':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'fxLoopSound':True,'fxLoopKeep':True,'fxLoopVol':True,'fxBadge':True,'fxStop':True,'pickWait':True,'pickCross':True,'pickDj':True,'pickAfterStop':True,'allOff':True,'panic':True,'keyE':True,'keyL':True,'keyN':True,'keyC':True,'blurOff':True,'telBuild':True,'telBuildEnd':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
+        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'gap':True,'autoPump':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'MANOPOLE EFFETTI DJ','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djPump':True,'djCrush':True,'djWobble':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'fxLoopSound':True,'fxLoopKeep':True,'fxLoopVol':True,'fxBadge':True,'fxStop':True,'pickWait':True,'pickCross':True,'pickDj':True,'pickAfterStop':True,'allOff':True,'panic':True,'keyE':True,'keyL':True,'keyN':True,'keyC':True,'blurOff':True,'telBuild':True,'telBuildEnd':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
              'stopAtBoundary':True,'stillRunning':True,'label':'■ SUBITO','stoppedAfter':True,'immediate':True,'notYet':True,'cleared':True,'shortKeeps':True}
         bad={k:(r.get(k),v) for k,v in exp.items() if r.get(k)!=v}
         assert not bad and not errs,bad

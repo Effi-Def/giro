@@ -6,7 +6,7 @@ const START_HINT="Premi un pad e suona: il primo loop parte dalla prima nota. Ri
 
 function loopLabel(i){const L=G.loops[i];
  if(L.pend)return L.pend.muted?"SI FERMA…":"RIPARTE…";
- if(L.dropped&&G.running)return"DROP";
+ if(L.dropped&&G.running)return"BREAK";
  switch(L.state){case "empty":return"";case "armed":return"SUONA";case "rec":return"REC";case "closing":return"CHIUDE…";
   case "dub":return"SOVRAINCIDI";case "play":return !G.running?"PRONTO":(L.muted?"FERMO":"")}}
 function loopColor(i){const L=G.loops[i];
@@ -69,15 +69,16 @@ function hint(){
  const n=s=>G.loops.findIndex(L=>L.state===s);
  let i;
  if(G.stopAt)return["<b>Mi fermo alla fine del giro.</b> ■ di nuovo: subito.","rec"];
- if(building)return["<b>Build-up:</b> il suono si chiude… lascia <b>▶</b> e tutto si riapre sull'1.","dub"];
- if(G.drop)return[`<b>DROP:</b> resta il loop ${G.sel+1}. Tocca <b>▶</b>: tutto rientra sull'1 · tieni premuto <b>▶</b>: build-up.`,"dub"];
+ if(building)return["<b>Salita…</b> lascia <b>▶</b>: mezzo battito di silenzio e <b>DROP</b> sull'1.","dub"];
+ if(G.dropAt)return["<b>DROP</b> sul prossimo 1…","dub"];
+ if(G.drop)return[`<b>BREAK:</b> resta il loop ${G.sel+1}. Tocca <b>▶</b>: tutto rientra sull'1 · tieni premuto <b>▶</b>: salita, lascia: <b>DROP</b>.`,"dub"];
  if((i=n("armed"))>=0)return[`<b>Loop ${i+1} pronto.</b> Suona: registra dalla prima nota.`,"arm"];
  if((i=n("rec"))>=0)return G.loops[i].first?[`<b>Registro il primo loop.</b> Ripremi il pad ${i+1} nel punto esatto in cui deve ricominciare.`,"rec"]:[`<b>Registro il loop ${i+1}.</b> Ripremi il pad ${i+1} quando hai finito: la lunghezza si aggancia da sola.`,"rec"];
  if((i=n("closing"))>=0)return[`<b>Loop ${i+1}:</b> chiudo alla fine del giro, continua a suonare.`,"rec"];
  if((i=n("dub"))>=0)return[`<b>Sovraincisione sul loop ${i+1}.</b> Suona sopra, premi ● per smettere.`,"dub"];
  if(!anyHas())return[START_HINT,"off"];
  if(!G.running)return["Fermo. <b>▶</b> per ripartire · tieni premuto <b>■</b> per cancellare tutto.","off"];
- return["Pad: nuovo loop · ferma / riparti sull'1 · <b>●</b> sovraincidi (pitch bend sceglie il loop) · <b>▶</b> drop, tenuto build-up · <b>■</b> fine a tempo.","play"]}
+ return["Pad: nuovo loop · ferma / riparti sull'1 · <b>●</b> sovraincidi (pitch bend sceglie il loop) · <b>▶</b> break, tenuto salita e DROP · <b>■</b> fine a tempo.","play"]}
 
 function render(){
  $$(".loop").forEach(b=>{const i=+b.dataset.loop,L=G.loops[i];
@@ -97,12 +98,12 @@ function render(){
  [...$("#djBar").children].forEach((el,i)=>{const a=i===7&&fxScope==="loop"?G.loops[G.sel].vol:V.v[i],u=el.querySelector("u");
   if(i===7)el.querySelector("span").innerHTML=`<b>8</b> ${fxScope==="loop"?"VOLUME":"TASTIERA"}`;
   if(i===0){u.style.left=Math.min(50,50+a*50)+"%";u.style.width=Math.abs(a)*50+"%"}else{u.style.left="0";u.style.width=a*100+"%"}
-  el.classList.toggle("on",i===0?a!==0:i===6?V.rollK>0:i===7?a<.98:a>.02);el.querySelector("small").textContent=djText(i)});
+  el.classList.toggle("on",i===0?a!==0:i===5?V.wbK>0:i===6?V.rollK>0:i===7?a<.98:a>.02);el.querySelector("small").textContent=djText(i)});
  $$("#sounds .snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||"")+(fxActive(LDJ[+b.dataset.loop])?" · FX":""):""});
  $("#playBtn").textContent=G.stopAt?"■ SUBITO":G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
- $("#dropBtn").hidden=!G.running;$("#dropBtn").textContent=G.drop?"▶ RIENTRA":"▶ DROP";$("#dropBtn").classList.toggle("on",G.drop||building);
+ $("#dropBtn").hidden=!G.running;$("#dropBtn").textContent=building?"▶ LASCIA: DROP":G.drop?"▶ RIENTRA":"▶ BREAK";$("#dropBtn").classList.toggle("on",G.drop||building||!!G.dropAt);
  $("#dubBtn").textContent=G.loops[G.sel].state==="dub"?`● FINE (loop ${G.sel+1})`:`● SOVRAINCIDI ${G.sel+1}`;
  $("#dubBtn").classList.toggle("on",G.loops[G.sel].state==="dub");
  $("#info").textContent=G.base?`${Math.round(bpm())} bpm · ${G.beats/4>=1?G.beats/4+" batt.":G.beats+" mov."}`:"giro libero";

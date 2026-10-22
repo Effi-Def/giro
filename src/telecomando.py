@@ -142,7 +142,7 @@ h2{margin:0 0 6px;font-size:12px;letter-spacing:.12em;color:var(--dim);font-weig
 <div id="ui" class="off">
  <button id="perf" data-c="perf">● REGISTRA ESIBIZIONE</button>
  <div style="height:14px"></div>
- <button id="play" disabled>DROP · TIENI: BUILD-UP</button>
+ <button id="play" disabled>BREAK · TIENI: SALITA E DROP</button>
  <div style="height:14px"></div>
  <h2>EFFETTI DJ <span id="fxOn"></span></h2>
  <div class="seg" id="fx"><button data-c="fx" data-v="mix">TUTTO</button><button data-c="fx" data-v="loop">SOLO LOOP</button></div>
@@ -164,7 +164,7 @@ document.body.addEventListener("click",e=>{const b=e.target.closest("button[data
  if(navigator.vibrate)navigator.vibrate(15);
  fetch("/cmd",{method:"POST",body:JSON.stringify({c:b.dataset.c,v:b.dataset.v})}).catch(()=>{})});
 const LBL={armed:"SUONA",rec:"REC",closing:"CHIUDE",dub:"SOVRAINC."};
-// come ▶ dell'Axiom mentre suona: tocco = drop / rientro, tenuto = build-up (che si riapre al rilascio)
+// come ▶ dell'Axiom mentre suona: tocco = break / rientro, tenuto = salita, rilascio = drop
 const pl=$("#play"),cmd=(c,v)=>fetch("/cmd",{method:"POST",body:JSON.stringify({c,v})}).catch(()=>{});
 let plDown=false;
 pl.addEventListener("pointerdown",e=>{if(pl.disabled)return;e.preventDefault();pl.setPointerCapture(e.pointerId);plDown=true;if(navigator.vibrate)navigator.vibrate(15);cmd("play","down")});
@@ -177,7 +177,7 @@ function show(s){const ok=!!s.giro;$("#st").className=ok?"ok":"";
  const seg=(id,v)=>document.querySelectorAll(`#${id} button`).forEach(b=>b.classList.toggle("on",b.dataset.v===String(v)));
  seg("fx",s.fx);seg("knob",s.knob);seg("quant",s.quant);$("#fxOn").textContent=s.fxOn?"● ATTIVI":"";$("#fxstop").classList.toggle("on",s.fxOn);
  pl.disabled=!s.running;pl.classList.toggle("on",s.drop||s.building);
- pl.textContent=s.building?"BUILD-UP… LASCIA PER APRIRE":s.drop?"RIENTRA · TIENI: BUILD-UP":"DROP · TIENI: BUILD-UP";
+ pl.textContent=s.building?"SALITA… LASCIA: DROP!":s.drop?"RIENTRA · TIENI: SALITA E DROP":"BREAK · TIENI: SALITA E DROP";
  document.querySelectorAll("#pads button").forEach(b=>{const i=+b.dataset.v,L=s.loops[i];
   b.className=(L.st==="play"?(L.muted||!s.running?"":"play"):L.st==="rec"||L.st==="closing"?"rec":L.st==="armed"?"arm":L.st)+(i===s.sel?" sel":"");
   b.querySelector("small").textContent=(LBL[L.st]||(L.st==="play"&&L.muted?"FERMO":""))+(L.fx?" FX":"")})}

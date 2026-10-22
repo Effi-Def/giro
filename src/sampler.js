@@ -5,15 +5,16 @@ const BUF={};const loading={};
 function impulse(sec){const len=ctx.sampleRate*sec,b=ctx.createBuffer(2,len,ctx.sampleRate);
  for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3)}return b}
 function b64buf(s){const bin=atob(s),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u.buffer}
-// per gli strumenti tenuti (organo, archi, pad, coro) prepara un tratto che si ripete senza scatti
-function makeLoop(b){const a=Math.round(1.2*b.sampleRate),e=Math.min(b.length-64,Math.round(2.9*b.sampleRate)),X=Math.round(.35*b.sampleRate);
+// per gli strumenti tenuti (organo, archi, pad, coro) prepara un tratto che si ripete senza scatti;
+// pts = [inizio, fine] in secondi per i suoni generati periodici (lp in sounds_meta.js), altrimenti 1,2 … 2,9 s
+function makeLoop(b,pts){const a=Math.round((pts?pts[0]:1.2)*b.sampleRate),e=Math.min(b.length-64,Math.round((pts?pts[1]:2.9)*b.sampleRate)),X=Math.round(.35*b.sampleRate);
  if(e-a<X*2)return null;
  for(let c=0;c<b.numberOfChannels;c++){const d=b.getChannelData(c);
   for(let i=0;i<X;i++){const w=i/X;d[e-X+i]=d[e-X+i]*(1-w)+d[a-X+i]*w}}
  return{start:a/b.sampleRate,end:e/b.sampleRate}}
 function loadSound(i){const s=SOUNDS[i];if(BUF[s.id])return Promise.resolve();if(loading[s.id])return loading[s.id];
  const src=SAMPLE_DATA[s.id];
- loading[s.id]=Promise.all(Object.entries(src).map(([k,v])=>ctx.decodeAudioData(typeof v==="string"?b64buf(v):v.slice(0)).then(b=>[+k,b,s.loop?makeLoop(b):null])))
+ loading[s.id]=Promise.all(Object.entries(src).map(([k,v])=>ctx.decodeAudioData(typeof v==="string"?b64buf(v):v.slice(0)).then(b=>[+k,b,s.loop?makeLoop(b,s.lp&&s.lp[k]):null])))
   .then(list=>{list.sort((x,y)=>x[0]-y[0]);BUF[s.id]=list;render()});
  return loading[s.id]}
 function preloadAll(){let p=Promise.resolve();SOUNDS.forEach((_,i)=>{p=p.then(()=>loadSound(i)).catch(()=>{})})}
