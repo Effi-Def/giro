@@ -53,10 +53,13 @@ registerProcessor("giro-looper",GiroLooper);`;
  else node.connect(PG.pump); // un'uscita sola: col ripiego la pompa prende tutti i loop
  applyMix();ready=true;loadFx();
  loadSound(SET.sound).then(preloadAll,preloadAll);restoreSession();
- setInterval(tick,20);
+ setInterval(tick,20);setInterval(clockSample,7);
 }
 // tr: buffer da passare al worklet senza copiarli (il mittente non li usa più)
 function send(c,tr){if(!ready)return;if(usingWorklet)node.port.postMessage(c,tr||[]);else core.cmd(c)}
+// buffer azzerato per il core (loop appena chiuso, copia per l'annulla della sovraincisione): preparato qui perché
+// nel thread audio la memoria nuova di un loop lungo costava fino a 8 ms. fill scrive ogni pagina, così è già assegnata.
+function freshBuf(n){const b=new Float32Array(n);b.fill(0);return b}
 function applyMix(){if(!ctx)return;const t=ctx.currentTime;
  cutF.frequency.setTargetAtTime(200*Math.pow(100,SET.cut),t,.02);wet.gain.setTargetAtTime(SET.rev*.5+DJV[2]*.8,t,.02);masterOut.gain.setTargetAtTime(SET.master*1.4,t,.02)} // +3 dB: i picchi li tiene il limitatore
 // saturazione: y = tanh(k·u)/k con u = 2x (l'ingresso arriva dimezzato): lineare a basso volume, morbida sui picchi
@@ -179,7 +182,25 @@ const toggleFxScope=()=>setFxScope(fxScope==="mix"?"loop":"mix");
 function stopAllFx(){for(let i=0;i<7;i++)DJV[i]=0;
  if(DJ){for(let i=0;i<7;i++)djApply(DJ,i);for(let i=0;i<LDJ.length;i++)dropLoopDJ(i)}
  flashHint("<b>Effetti spenti</b> su tutto il mix e su tutti i loop.");render()}
-const nowF=()=>Math.round(ctx.currentTime*sr);
+// Tempo degli eventi. ctx.currentTime avanza a scatti: un blocco da 128 campioni alla volta, a raffiche lunghe quanto
+// il buffer della scheda (su questo PC 10 ms, scarto misurato 13,8 ms). Leggerlo quando arriva una nota dava fino a
+// ~14 ms di jitter fra il tasto e il suono (e nel loop, senza quantizzazione). Si usa invece l'istante dell'evento
+// (timeStamp di MIDI, tastiera e puntatore, sullo stesso orologio di performance.now) portato sull'orologio audio
+// con ckMax(): il massimo recente di currentTime − performance.now(), cioè dove arriva currentTime subito dopo una
+// raffica. Così una nota parte sempre allo stesso ritardo dal tasto (in media mezzo buffer in più, niente jitter).
+const CK=[]; // massimi di currentTime − performance.now() a finestre di 0,5 s (le ultime 4: l'orologio audio deriva)
+function clockSample(){if(!ctx||ctx.state!=="running")return;const p=performance.now()/1000,o=ctx.currentTime-p,k=Math.floor(p*2);
+ if(CK.length&&o<ckMax()-.06)CK.length=0; // audio rimasto indietro (buco, scheda cambiata): i massimi vecchi non valgono più
+ const top=CK[CK.length-1];if(top&&top.k===k){if(o>top.o)top.o=o}else{CK.push({k,o});while(CK[0].k<k-3)CK.shift()}}
+function ckMax(){let m=-Infinity;for(const x of CK)if(x.o>m)m=x.o;return m}
+// istante (sull'orologio audio) dell'evento con questo timeStamp; null se non si può dire
+function eventTime(ts){clockSample();if(!(ts>0)||CK.length<2)return null;
+ const t=ts/1000+ckMax(),now=ctx.currentTime;return t>now+.05||t<now-.25?null:t}
+let evT=null; // istante dell'evento che si sta gestendo (null = adesso)
+// gestisce un evento al suo istante: dentro fn, nowT() e nowF() valgono quell'istante
+function atEvent(e,fn){evT=ctx?eventTime(e&&e.timeStamp):null;try{return fn()}finally{evT=null}}
+const nowT=()=>evT??ctx.currentTime;
+const nowF=()=>Math.round(nowT()*sr);
 // i suoni sono tutti interni: le note e i loop escono con lo stesso ritardo e chi suona si allinea a orecchio,
 // quindi la latenza d'uscita non va compensata (spostava le note in anticipo). Resta solo il buffer dello ScriptProcessor.
 function latencyFrames(){return usingWorklet?0:1024}
@@ -260,20 +281,20 @@ function close(i){const L=G.loops[i],f=nowF();
   if(f-L.start<sr*.25){send({type:"cancelRec",i});L.state="empty";flashHint("Troppo corto: tieni il primo giro almeno un quarto di secondo.");return}
   const len=f-L.start;
   G.base=len;G.beats=beatsFor(len);G.origin=L.start;L.len=len;L.t0=L.start;
-  send({type:"recEnd",i,end:f,len,t0:L.start});
+  const nb=freshBuf(len);send({type:"recEnd",i,end:f,len,t0:L.start,buf:nb},[nb.buffer]);
   // anche registrato senza quantizzazione, il primo giro decide se il tempo vero è il doppio (sopra i 140)
   if(L.q)renderRec(i);else checkDouble(G.firstOn.map(on=>({on,comp:0})));
   send({type:"gate",i,on:1,frame:f});
   L.state="play";L.has=true;L.muted=false;G.running=true;rotateBus();djRetime();return}
  const k=Math.max(1,Math.round((f-L.start)/G.base)),len=k*G.base,end=Math.max(L.start+len,f);
  L.len=len;L.t0=L.start;L.end=end;L.has=true;L.muted=false;
- send({type:"recEnd",i,end,len,t0:L.start});send({type:"gate",i,on:G.running?1:0,frame:end});
+ const nb=freshBuf(len);send({type:"recEnd",i,end,len,t0:L.start,buf:nb},[nb.buffer]);send({type:"gate",i,on:G.running?1:0,frame:end});
  if(end>f+sr*.02)L.state="closing";else{if(L.q)renderRec(i);L.state="play";rotateBus()}}
 
 function startDub(i){const L=G.loops[i];if(!G.running)playAll();
  G.loops.forEach((o,j)=>{if(j!==i&&o.state==="dub")endDub(j)}); // una sovraincisione alla volta
  if(L.muted){L.muted=false;L.pend=null;send({type:"gate",i,on:1,frame:nowF()})}
- send({type:"dub",i,bus:G.cur,comp:latencyFrames()});L.state="dub";L.q=SET.quant;G.dubTake=[];render()}
+ const nb=freshBuf(L.len);send({type:"dub",i,bus:G.cur,comp:latencyFrames(),buf:nb},[nb.buffer]);L.state="dub";L.q=SET.quant;G.dubTake=[];render()}
 function endDub(i){send({type:"undub",i});G.loops[i].state="play";rotateBus();render()}
 
 function clearLoop(i){const L=G.loops[i];
@@ -522,10 +543,10 @@ function noteOn(note,vel){if(!ready)return;
   ev={i,kind:ti>=0?"rec":"dub",note,vel,sound:SET.sound,q:L.q,on:nowF(),off:null,comp:L.first&&ti>=0?0:latencyFrames()};G.ev.push(ev)}
  // nota annotata: il suono dal vivo non va al looper, nel loop entra la versione a tempo; altrimenti va sul bus registrato
  if(ev)ev.lv=DJV[7]; // il volume della tastiera vale anche per la nota rimessa a tempo nel loop
- held.set(note,{v:voice(SET.sound,note,vel,ctx.currentTime,ev?masterIn:liveBus[G.cur],DJV[7]),sus:false,ev});uiNote(note,true)}
+ held.set(note,{v:voice(SET.sound,note,vel,nowT(),ev?masterIn:liveBus[G.cur],DJV[7]),sus:false,ev});uiNote(note,true)}
 let sustain=false;
 function noteOff(note,force){const h=held.get(note);if(!h)return;if(sustain&&!force){h.sus=true;return}
- h.v.release(ctx.currentTime);held.delete(note);uiNote(note,false);
+ h.v.release(nowT());held.delete(note);uiNote(note,false);
  if(h.ev&&!h.ev.done){h.ev.off=nowF();if(h.ev.kind==="dub")commitDubNote(h.ev)}}
 function setSustain(on){sustain=on;if(!on)[...held.entries()].filter(([,h])=>h.sus).forEach(([n])=>noteOff(n,true))}
 // spegne tutte le note dal vivo, anche quelle tenute dal pedale: per le note rimaste bloccate (cavo staccato,
@@ -554,7 +575,7 @@ const BTN={18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepFa
 function initMIDI(){
  if(!navigator.requestMIDIAccess){setMidi(false,"MIDI non supportato: usa Chrome");return}
  navigator.requestMIDIAccess().then(acc=>{
-  const bind=()=>{const names=[];acc.inputs.forEach(inp=>{inp.onmidimessage=onMIDI;names.push(inp.name.replace(/ MIDI In$/,""))});
+  const bind=()=>{const names=[];acc.inputs.forEach(inp=>{inp.onmidimessage=e=>atEvent(e,()=>onMIDI(e));names.push(inp.name.replace(/ MIDI In$/,""))});
    setMidi(names.length>0,names.length?names.join(", "):"Nessuna tastiera")};
   // una tastiera che si stacca non manda più i rilasci: spengo le note
   bind();acc.onstatechange=e=>{if(e&&e.port&&e.port.type==="input"&&e.port.state==="disconnected")allNotesOff();bind()}},()=>setMidi(false,"MIDI non consentito"))}
@@ -638,7 +659,7 @@ function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;
 // ---------- Tastiera del PC ----------
 // tasti delle note: nessuna di queste lettere può essere un comando (i comandi sono controllati prima)
 const KEYMAP="awsedftgyhujkolp;'";const pcHeld=new Map();
-addEventListener("keydown",e=>{
+addEventListener("keydown",e=>atEvent(e,()=>{
  if(!$("#gate").hidden){e.preventDefault();start();return}
  if(!$("#settings").hidden){if(e.key==="Escape")closeSettings();return}
  if(e.target.matches("input,select")||e.ctrlKey||e.metaKey||e.altKey)return;
@@ -661,12 +682,12 @@ addEventListener("keydown",e=>{
  if(e.key==="ArrowRight"){e.preventDefault();return stepInFamily(1)}
  if(e.key==="ArrowLeft"){e.preventDefault();return stepInFamily(-1)}
  if(k==="z"||k==="x"){SET.oct=Math.max(-3,Math.min(3,SET.oct+(k==="z"?-1:1)));flashHint(`Ottava tastiera PC: ${SET.oct>0?"+":""}${SET.oct}`);return}
- const idx=KEYMAP.indexOf(k);if(idx>=0){const n=60+SET.oct*12+idx;pcHeld.set(k,n);noteOn(n,.8)}});
+ const idx=KEYMAP.indexOf(k);if(idx>=0){const n=60+SET.oct*12+idx;pcHeld.set(k,n);noteOn(n,.8)}}));
 // finestra che perde il focus: i rilasci dei tasti del PC non arriverebbero più (note bloccate, pad o ■ tenuti che cancellano)
 addEventListener("blur",()=>{[...pcHeld.values()].forEach(n=>noteOff(n,true));pcHeld.clear();
  for(const i in holdT)padUp(+i);stopRelease();playUp()});
-addEventListener("keyup",e=>{const k=e.key.toLowerCase();
+addEventListener("keyup",e=>atEvent(e,()=>{const k=e.key.toLowerCase();
  if(e.code==="Space")return stopRelease();
  if(k==="b")return playUp();
  if(/^[1-8]$/.test(k))return padUp(+k-1);
- if(pcHeld.has(k)){noteOff(pcHeld.get(k));pcHeld.delete(k)}});
+ if(pcHeld.has(k)){noteOff(pcHeld.get(k));pcHeld.delete(k)}}));

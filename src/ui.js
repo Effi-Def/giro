@@ -32,7 +32,7 @@ function build(){
    <span class="vol"><i></i></span>
   </button>`).join("");
  $$(".loop").forEach(b=>{const i=+b.dataset.loop;
-  b.addEventListener("pointerdown",e=>{e.preventDefault();padDown(i)});
+  b.addEventListener("pointerdown",e=>{e.preventDefault();atEvent(e,()=>padDown(i))});
   ["pointerup","pointerleave","pointercancel"].forEach(ev=>b.addEventListener(ev,()=>padUp(i)));
   b.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();tap(i)}})});
  $("#keys").innerHTML=Array.from({length:61},(_,k)=>`<i data-k="${36+k}" class="${[1,3,6,8,10].includes(k%12)?"b":""}"></i>`).join("");

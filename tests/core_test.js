@@ -71,6 +71,29 @@ const join=it=>{const d=new Float32Array(it.len);let o=0;for(const ch of it.chun
  const it=dm.items[0];d.cmd({type:'load',i:it.i,data:it.data,len:it.len,t0:it.t0,vol:.5,pan:-.3,fx:.2});d.process([null,null,null],new Float32Array(N),0,N);
  const L=d.loops[it.i];ok(L.buf&&L.len===it.len&&L.t0===it.t0&&L.vol===.5&&L.pan===-.3&&L.buf[0]===it.data[0],'load: loop ripristinato con volume, pan e filtro');
  it.data[0]=99;ok(c.loops[it.i].buf[0]!==99,'dump: è una copia, non il buffer vivo')}
+// registrazione a pezzi piccoli (CH=700): impulsi a cavallo dei pezzi e eccedenza ripiegata
+{const r=new LoopCore(sr);r.CH=700;const ev={};let Fr=0;
+ const go=to=>{while(Fr<to){const a=new Float32Array(N);for(let k=0;k<N;k++)a[k]=ev[Fr+k]||0;r.process([a,null,null],new Float32Array(N),Fr,N);Fr+=N}};
+ const at={1000:1,1699:.3,1700:.6,2400:.2,3999:.7,4250:.4};for(const f in at)ev[f]=at[f];
+ go(1024);r.cmd({type:'rec',i:0,bus:0,start:1000,comp:0});go(3000);r.cmd({type:'recEnd',i:0,end:4400,len:3000,t0:1000});go(5000);
+ const b=r.loops[0].buf,want={0:1,699:.3,700:.6,1400:.2,2999:.7,250:.4};
+ ok(b&&b.length===3000&&Object.entries(want).every(([j,v])=>Math.abs(b[j]-v)<1e-6)&&b.reduce((s,x)=>s+Math.abs(x),0)-3.2<1e-5,'registrazione a pezzi: campioni al posto giusto, eccedenza ripiegata')}
+// copia per l'annulla fatta a pezzi (DB piccolo): mentre si sovraincide, annulla torna esattamente al loop di prima
+{const r=new LoopCore(sr),len=5000,d=new Float32Array(len);for(let j=0;j<len;j++)d[j]=Math.sin(j*.37);
+ r.cmd({type:'load',i:0,data:d.slice(),len,t0:0,vol:1,pan:0,fx:0});r.cmd({type:'gate',i:0,on:1,frame:0});r.DB=300;let Fr=0;
+ const go=(to,x)=>{while(Fr<to){const a=new Float32Array(N).fill(x||0);r.process([a,null,null],new Float32Array(N),Fr,N);Fr+=N}};
+ go(1280);r.cmd({type:'dub',i:0,bus:0,comp:0});go(1280+N,.5);
+ ok(r.loops[0].cp&&r.loops[0].cp.left>0,'sovraincisione: la copia per l\'annulla non si fa in un blocco solo');
+ go(4000,.5);r.cmd({type:'pend',i:0,start:3000,data:new Float32Array(400).fill(.25),at:Fr});go(4400,.5);
+ r.cmd({type:'undub',i:0});go(9000);ok(!r.loops[0].cp,'copia finita');
+ const changed=r.loops[0].buf.some((x,j)=>Math.abs(x-d[j])>1e-3);r.cmd({type:'undo',i:0});go(9000+N);
+ ok(changed&&r.loops[0].buf.every((x,j)=>x===d[j]),'annulla dopo una sovraincisione copiata a pezzi: loop identico a prima');
+ r.cmd({type:'dub',i:0,bus:0,comp:0});go(9000+2*N,.5);r.cmd({type:'undo',i:0});go(9000+3*N);
+ ok(r.loops[0].buf.every((x,j)=>x===d[j]),'annulla subito dopo l\'inizio (copia non finita): loop identico a prima')}
+// strati di annulla: ne restano al massimo UNDO
+{const r=new LoopCore(sr);r.cmd({type:'load',i:0,data:new Float32Array(1000),len:1000,t0:0,vol:1,pan:0,fx:0});
+ for(let k=0;k<14;k++){r.cmd({type:'dub',i:0,bus:0,comp:0});r.cmd({type:'undub',i:0})}r.process([null,null,null],new Float32Array(N),0,N);
+ ok(r.loops[0].undo.length===r.UNDO,'annulla: tenuti gli ultimi '+r.UNDO+' strati ('+r.loops[0].undo.length+')')}
 // uscite separate: ogni loop esce sulla sua coppia di canali, l'uscita principale resta muta
 {const r=new LoopCore(sr),len=1000,d=new Float32Array(len).fill(.5);
  for(const i of [0,1])r.cmd({type:'load',i,data:d.slice(),len,t0:0,vol:i?1:.5,pan:0,fx:0});
