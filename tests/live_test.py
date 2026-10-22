@@ -52,11 +52,24 @@ async def main():
           res.djBar=!document.querySelector('#djBar').hidden;res.djVolUntouched=G.loops[0].vol===v0;
           res.djFilter=DJ.lp.frequency.value<1000;res.djEcho=DJ.eWet.gain.value>.4&&DJ.eFb.gain.value>.5;
           res.djFlanger=DJ.flWet.gain.value>.5;res.djCrush=!!DJ.crush.curve;res.djGate=!!DJ.gateOsc;
-          res.djRoll=rollK===2;res.djLive=Math.abs(DJV[7]-64/127)<1e-6;
+          res.djRoll=DJ.rollK===2;res.djLive=Math.abs(DJV[7]-64/127)<1e-6;
           await wait(Math.round(G.base/G.beats/2/sr*1000)*2+150);res.djRollOn=DJ.rWet.gain.value===1&&DJ.rDry.gain.value===0;
           // tutto spento di nuovo: il suono torna com'era
           cc(1,64);cc(2,0);cc(4,0);cc(5,0);cc(6,0);cc(7,0);cc(8,127);await wait(400);
-          res.djOff=DJ.lp.frequency.value>15000&&DJ.hp.frequency.value<20&&DJ.eWet.gain.value<.01&&DJ.flWet.gain.value<.01&&!DJ.crush.curve&&!DJ.gateOsc&&rollK===0&&DJ.rDry.gain.value===1&&DJ.rWet.gain.value===0&&DJV[7]===1;
+          res.djOff=DJ.lp.frequency.value>15000&&DJ.hp.frequency.value<20&&DJ.eWet.gain.value<.01&&DJ.flWet.gain.value<.01&&!DJ.crush.curve&&!DJ.gateOsc&&DJ.rollK===0&&DJ.rDry.gain.value===1&&DJ.rWet.gain.value===0&&DJV[7]===1;
+          // effetti sul singolo loop: il loop 1 tiene l'eco, le manopole passano al loop 2 (flanger); la manopola 8 è il volume del loop
+          G.sel=0;setFxScope('loop');cc(2,127);await wait(300);
+          const an=ctx.createAnalyser();LDJ[0].out.connect(an);await wait(300);const buf=new Float32Array(2048);an.getFloatTimeDomainData(buf);
+          res.fxLoopSound=buf.some(x=>Math.abs(x)>1e-4);
+          G.sel=1;cc(4,127);cc(8,64);await wait(300);
+          res.fxLoopKeep=LDJ[0].eWet.gain.value>.4&&LDJ[0].flWet.gain.value<.01&&LDJ[1].flWet.gain.value>.5&&DJ.eWet.gain.value<.01&&DJ.flWet.gain.value<.01;
+          res.fxLoopVol=Math.abs(G.loops[1].vol-64/127)<1e-6&&DJV[7]===1;
+          res.fxBadge=document.querySelector('.loop[data-loop="0"] .snm').textContent.endsWith('FX');
+          setFxScope('mix');cc(2,127);await wait(100);stopAllFx();await wait(300);
+          res.fxStop=LDJ.every(d=>!d)&&DJ.eWet.gain.value<.01&&!djAll().some(fxActive);
+          G.loops[1].vol=.8;send({type:'vol',i:1,v:.8});
+          // dal telefono: tenuto = build-up, rilascio = si riapre
+          telCmd({c:'play',v:'down'});await wait(600);res.telBuild=building;telCmd({c:'play',v:'up'});res.telBuildEnd=!building;
           const s0=SET.sound;hc(98,127);hc(98,0);res.hcCenter=SET.sound!==s0;
           onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad=!!G.loops[0].pend;
           onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad2=!G.loops[0].pend;
@@ -80,7 +93,7 @@ async def main():
           cc(16,127);await wait(200);cc(16,0);await wait(2200);res.shortKeeps=anyHas();
           return res}''')
         print(json.dumps(r,indent=1));print('errori',errs)
-        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'MANOPOLE EFFETTI DJ','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djFlanger':True,'djCrush':True,'djGate':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
+        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'MANOPOLE EFFETTI DJ','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djFlanger':True,'djCrush':True,'djGate':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'fxLoopSound':True,'fxLoopKeep':True,'fxLoopVol':True,'fxBadge':True,'fxStop':True,'telBuild':True,'telBuildEnd':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
              'stopAtBoundary':True,'stillRunning':True,'label':'■ SUBITO','stoppedAfter':True,'immediate':True,'notYet':True,'cleared':True,'shortKeeps':True}
         bad={k:(r.get(k),v) for k,v in exp.items() if r.get(k)!=v}
         assert not bad and not errs,bad

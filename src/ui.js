@@ -46,7 +46,9 @@ function build(){
  ["pointerup","pointerleave","pointercancel"].forEach(ev=>db.addEventListener(ev,playUp));
  $("#knobBtn").onclick=cycleKnobMode;
  $("#djBar").innerHTML=DJ_NAMES.map((n,i)=>`<div class="dj${i===0?" c":""}"><span><b>${i+1}</b> ${n}</span><i><u></u></i><small></small></div>`).join("");
- $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
+ $("#fxScopeBtn").onclick=toggleFxScope;$("#fxStopBtn").onclick=stopAllFx;
+ $("#tel").onclick=telQR;$("#telQR").onclick=()=>$("#telQR").hidden=true;
+ $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#perfBtn").onclick=perfToggle;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
  $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
  [["#cut","cut"],["#rev","rev"],["#master","master"]].forEach(([s,k])=>{$(s).value=SET[k];$(s).oninput=e=>{SET[k]=+e.target.value;applyMix();saveSet()}});
@@ -88,18 +90,25 @@ function render(){
   vi.style.left=Math.max(0,l)+"%";vi.style.width=Math.min(w,100-Math.max(0,l))+"%"});
  $("#knobBtn").innerHTML=`MANOPOLE <b>${KNOB_NAMES[knobMode]}</b>`;
  // effetti DJ: la striscia si vede solo in quel modo; il filtro parte dal centro
- $("#djBar").hidden=knobMode!=="dj";
- [...$("#djBar").children].forEach((el,i)=>{const a=DJV[i],u=el.querySelector("u");
+ $("#djBar").hidden=$("#djCtl").hidden=knobMode!=="dj";
+ $("#fxScopeBtn").innerHTML=fxScope==="loop"?`EFFETTI SU <b>LOOP ${G.sel+1}</b>`:"EFFETTI SU <b>TUTTO</b>";
+ $("#fxScopeBtn").classList.toggle("on",fxScope==="loop");$("#fxStopBtn").classList.toggle("on",djAll().some(fxActive));
+ const V=djView();
+ [...$("#djBar").children].forEach((el,i)=>{const a=i===7&&fxScope==="loop"?G.loops[G.sel].vol:V.v[i],u=el.querySelector("u");
+  if(i===7)el.querySelector("span").innerHTML=`<b>8</b> ${fxScope==="loop"?"VOLUME":"TASTIERA"}`;
   if(i===0){u.style.left=Math.min(50,50+a*50)+"%";u.style.width=Math.abs(a)*50+"%"}else{u.style.left="0";u.style.width=a*100+"%"}
-  el.classList.toggle("on",i===0?a!==0:i===6?rollK>0:i===7?a<.98:a>.02);el.querySelector("small").textContent=djText(i)});
+  el.classList.toggle("on",i===0?a!==0:i===6?V.rollK>0:i===7?a<.98:a>.02);el.querySelector("small").textContent=djText(i)});
  $$("#sounds .snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
- $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||""):""});
+ $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||"")+(fxActive(LDJ[+b.dataset.loop])?" · FX":""):""});
  $("#playBtn").textContent=G.stopAt?"■ SUBITO":G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
  $("#dropBtn").hidden=!G.running;$("#dropBtn").textContent=G.drop?"▶ RIENTRA":"▶ DROP";$("#dropBtn").classList.toggle("on",G.drop||building);
  $("#dubBtn").textContent=G.loops[G.sel].state==="dub"?`● FINE (loop ${G.sel+1})`:`● SOVRAINCIDI ${G.sel+1}`;
  $("#dubBtn").classList.toggle("on",G.loops[G.sel].state==="dub");
  $("#info").textContent=G.base?`${Math.round(bpm())} bpm · ${G.beats/4>=1?G.beats/4+" batt.":G.beats+" mov."}`:"giro libero";
+ {const m=Math.floor(perfSecs()/60),sc=Math.floor(perfSecs()%60);$("#perfBtn").textContent=perf?`■ FERMA E SALVA ${m}:${String(sc).padStart(2,"0")}`:"● REGISTRA ESIBIZIONE";$("#perfBtn").classList.toggle("on",!!perf)}
+ $("#tel").hidden=!tel.on;$("#tel").textContent="📱 TELEFONO";
+ telPush();
  $("#qBtn").textContent=`QUANTIZZA ${QNAMES[SET.quant]}`;$("#qBtn").classList.toggle("on",SET.quant>0);
  const [h,c]=hint();$("#hint").innerHTML=h;$("#hintBox").dataset.c=c}
 
@@ -133,4 +142,4 @@ function flash(sel){$$(sel).forEach(el=>{el.classList.add("hit");clearTimeout(el
 function uiNote(n,on){const k=$(`#keys i[data-k="${n}"]`);if(k)k.classList.toggle("on",on)}
 function setMidi(ok,txt){const m=$("#midi");m.textContent=txt;m.classList.toggle("ok",ok);$("#gateMidi").textContent=ok?`Tastiera collegata: ${txt}`:txt}
 
-loadSet();build();render();loadCustomSounds();initMIDI();requestAnimationFrame(frame);
+loadSet();build();render();loadCustomSounds();initMIDI();telConnect();requestAnimationFrame(frame);

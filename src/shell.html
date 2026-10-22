@@ -55,6 +55,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 #midi{font:12px var(--f-mono);color:var(--rec);display:flex;align-items:center;gap:6px;white-space:nowrap}
 #midi::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
 #midi.ok{color:var(--play)}
+#tel{color:var(--play);border-color:color-mix(in srgb,var(--play) 45%,var(--line))}
+#telQR .sheet{max-width:360px;text-align:center}
+#telQR img{width:100%;max-width:300px;aspect-ratio:1;border-radius:8px;background:#fff;display:block;margin:8px auto}
 
 .soundbar{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 12px;display:flex;flex-direction:column;gap:7px}
 .sbh{display:flex;align-items:baseline;gap:12px}
@@ -74,6 +77,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 .dk.bk{background:#0b0d10}
 .dk b{font:600 11px var(--f-mono);color:var(--sel)}
 .mid{display:flex;flex-direction:column;gap:8px;min-width:0}
+.djctl{display:flex;gap:8px;flex-wrap:wrap}
+#fxScopeBtn b{color:var(--ink)}
+#fxScopeBtn.on{color:var(--sel);border-color:color-mix(in srgb,var(--sel) 55%,var(--line))}
+#fxStopBtn.on{color:var(--rec);border-color:color-mix(in srgb,var(--rec) 55%,var(--line))}
 .djbar{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
 .dj{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:4px;min-width:0}
 .dj span{font:600 13px/1 var(--f-display);letter-spacing:.06em;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -166,11 +173,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
       <button class="big" id="dropBtn" hidden title="Tocco: drop / rientro sull'1 · tenuto: build-up (▶ sull'Axiom, B sul PC)">▶ DROP</button>
       <button class="big" id="dubBtn">● SOVRAINCIDI</button>
       <button class="small" id="knobBtn" title="Cosa fanno le manopole: cambia col pulsante dei modi dell'Axiom, con un clic qui o col tasto M">MANOPOLE <b>VOLUME</b></button>
+      <button class="small" id="perfBtn" title="Registra tutto quello che esce e lo salva in un WAV (tasto E sul PC)">● REGISTRA ESIBIZIONE</button>
       <button class="small" id="qBtn" title="Rimette a tempo le note registrate (Q sul PC)">QUANTIZZA 1/16</button>
       <button class="small" id="undoBtn" title="Annulla l'ultimo strato (◀ sull'Axiom)">◀ ANNULLA</button>
       <button class="small" id="redoBtn" title="Ripristina (▶ sull'Axiom)">RIPETI ▶</button>
     </div>
     <span id="midi">MIDI</span>
+    <button class="small" id="tel" hidden title="Telecomando acceso: tocca per il QR da inquadrare col telefono"></button>
     <button class="small" id="openSettings" aria-label="Impostazioni">⚙</button>
   </header>
 
@@ -182,6 +191,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 
   <div class="mid">
     <div class="hint" id="hintBox"><div id="hint"></div></div>
+    <div class="djctl" id="djCtl" hidden>
+      <button class="small" id="fxScopeBtn" title="Su cosa agiscono le manopole degli effetti: tutto il mix o solo il loop selezionato (tasto L)">EFFETTI SU <b>TUTTO</b></button>
+      <button class="small" id="fxStopBtn" title="Spegne tutti gli effetti, sul mix e su ogni loop (tasto 0)">STOP EFFETTI</button>
+    </div>
     <div class="djbar" id="djBar" hidden aria-label="Effetti DJ sulle manopole"></div>
   </div>
 
@@ -207,6 +220,16 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
   </div>
 </div>
 
+<div id="telQR" class="overlay" hidden>
+  <div class="sheet">
+    <h2>TELECOMANDO</h2>
+    <p>Inquadra il QR con la fotocamera del telefono (stessa rete Wi-Fi).</p>
+    <img id="telQRimg" alt="QR del telecomando">
+    <p id="telAddr" style="font-family:var(--f-mono)"></p>
+    <p class="help">Tocca per chiudere.</p>
+  </div>
+</div>
+
 <div id="settings" class="overlay" hidden>
   <div class="sheet">
     <div class="shead"><h2>IMPOSTAZIONI</h2><button class="small" id="closeSettings">CHIUDI</button></div>
@@ -220,6 +243,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
       <h3>Esporta</h3>
       <div><button class="small" id="exportBtn">SCARICA WAV</button></div>
       <p class="help">Un giro completo dei loop che non sono fermi, in stereo, con volume, pan e filtro dei loop. Senza gli effetti DJ, il riverbero e il filtro generale. Parte e finisce sull'1: si ripete senza stacchi.</p>
+    </section>
+    <section>
+      <h3>Telefono</h3>
+      <p class="help">Per comandare dal telefono registra esibizione, roll, modo delle manopole, quantizza e loop selezionato: fai doppio clic su <b>telecomando.bat</b> (nella stessa cartella di giro.html) e lascia aperta la sua finestra. Sul telefono, collegato alla stessa rete Wi-Fi, inquadra il QR che compare nella finestra, oppure tocca <b>📱 TELEFONO</b> in alto in Giro per vederlo qui. La prima volta Windows chiede il permesso di rete: consenti. Internet non serve.</p>
     </section>
     <section>
       <h3>Tempismo</h3>
@@ -243,7 +270,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>Manopole 1–8</td><td>Secondo il pulsante dei modi accanto alle manopole: LED <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, tutti <b>spenti</b> (modo MIDI) = <b>effetti DJ su tutto il mix</b>: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco a tempo · 3 riverbero · 4 flanger · 5 crusher · 6 trance gate a tempo · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera. Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Il modo si vede in alto (MANOPOLE …) e si cambia anche con un clic lì.</td></tr>
       </table>
       <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX: cambia solo cosa fanno le manopole. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
-      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>Spazio</kbd> play/stop · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
+      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>L</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>E</kbd> registra esibizione · <kbd>Spazio</kbd> play/stop · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
       <div><button class="small" id="diagStart">DIAGNOSTICA MIDI</button></div>
       <pre id="diag">—</pre>
     </section>

@@ -65,3 +65,10 @@ console.log('messaggi',msgs().map(m=>m.type).join(','));
  const it=dm.items[0];d.cmd({type:'load',i:it.i,data:it.data,len:it.len,t0:it.t0,vol:.5,pan:-.3,fx:.2});d.process([null,null,null],new Float32Array(N),0,N);
  const L=d.loops[it.i];ok(L.buf&&L.len===it.len&&L.t0===it.t0&&L.vol===.5&&L.pan===-.3&&L.buf[0]===it.data[0],'load: loop ripristinato con volume, pan e filtro');
  it.data[0]=99;ok(c.loops[it.i].buf[0]!==99,'dump: è una copia, non il buffer vivo')}
+// uscite separate: ogni loop esce sulla sua coppia di canali, l'uscita principale resta muta
+{const r=new LoopCore(sr),len=1000,d=new Float32Array(len).fill(.5);
+ for(const i of [0,1])r.cmd({type:'load',i,data:d.slice(),len,t0:0,vol:i?1:.5,pan:0,fx:0});
+ r.cmd({type:'gate',i:0,on:1,frame:0});r.cmd({type:'gate',i:1,on:1,frame:0});
+ const outs=Array.from({length:8},()=>[new Float32Array(N),new Float32Array(N)]),o=new Float32Array(N),oR=new Float32Array(N);
+ for(let b=0;b<40;b++)r.process([null,null,null],o,b*N,N,oR,outs);
+ ok(Math.abs(outs[0][0][5]-.25)<1e-3&&Math.abs(outs[1][1][5]-.5)<1e-3&&outs[2][0].every(x=>x===0)&&o.every(x=>x===0),'uscite separate per loop')}

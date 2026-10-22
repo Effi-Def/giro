@@ -61,8 +61,9 @@ class LoopCore{
  filt(fx){const a=Math.abs(fx);if(a<.02)return null;const t=(a-.02)/.98,hp=fx>0;
   const fc=Math.min(hp?20*Math.pow(300,t):20000*Math.pow(150/20000,t),this.sr*.45);
   const g=Math.tan(Math.PI*fc/this.sr),k=1/1.2,a1=1/(1+g*(g+k));return{hp,k,a1,a2:g*a1,a3:g*g*a1}}
- // out: uscita mono (o canale sinistro); outR facoltativo: se c'è l'uscita è stereo e vale il pan
- process(ins,out,F0,n,outR){
+ // out: uscita mono (o canale sinistro); outR facoltativo: se c'è l'uscita è stereo e vale il pan.
+ // outs facoltativo: [[sinistra,destra],…] uno per loop; se c'è, ogni loop esce sul suo (per gli effetti del singolo loop)
+ process(ins,out,F0,n,outR,outs){
   const RL=this.RL,F1=F0+n;
   for(let b=0;b<3;b++){const r=this.ring[b],x=ins[b];let p=F0%RL;for(let k=0;k<n;k++){r[p]=x?x[k]:0;if(++p===RL)p=0}}
   if(this.q.length){const keep=[];for(const c of this.q){if(c.frame==null||c.frame<F1)this.exec(c,F0);else keep.push(c)}this.q=keep}
@@ -71,7 +72,7 @@ class LoopCore{
    if(upto>R.have){this.grow(R,upto-R.start);const r=this.ring[R.bus];
     for(let f=R.have;f<upto;f++)R.data[f-R.start]=r[f%RL];R.have=upto}
    if(R.end!=null&&R.have>=R.end)this.finish(i)}
-  out.fill(0);if(outR)outR.fill(0);
+  out.fill(0);if(outR)outR.fill(0);if(outs)for(const o of outs){o[0].fill(0);if(o[1])o[1].fill(0)}
   const sm=Math.min(1,n/(.03*this.sr)); // smussatura di pan e filtro: ~30 ms
   this.peakClock+=n;const peakNow=this.peakClock>=this.sr*.3;if(peakNow)this.peakClock=0;
   for(let i=0;i<this.NL;i++){const L=this.loops[i];
@@ -81,13 +82,14 @@ class LoopCore{
      for(let k=0;k<d.length;k++){b[p]+=d[k];if(++p===len)p=0}this.peaks(i);return false})}
    L.ps+=(L.pan-L.ps)*sm;L.fs+=(L.fx-L.fs)*sm;
    if(g>1e-5||target>0){let p=this.mod(F0-L.t0,len);
-    const F=this.filt(L.fs),gl=outR?Math.min(1,1-L.ps):1,gr=Math.min(1,1+L.ps);
+    const oL=outs?outs[i][0]:out,oR=outs?outs[i][1]:outR;
+    const F=this.filt(L.fs),gl=oR?Math.min(1,1-L.ps):1,gr=Math.min(1,1+L.ps);
     if(!F){L.z1=0;L.z2=0;
-     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;const s=b[p]*g;out[k]+=s*gl;if(outR)outR[k]+=s*gr;if(++p===len)p=0}}
+     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;const s=b[p]*g;oL[k]+=s*gl;if(oR)oR[k]+=s*gr;if(++p===len)p=0}}
     else{let z1=L.z1,z2=L.z2;const{hp,k:kq,a1,a2,a3}=F;
      for(let k=0;k<n;k++){g+=(target-g)*this.ramp;const x=b[p]*g;
       const v3=x-z2,v1=a1*z1+a2*v3,v2=z2+a2*z1+a3*v3;z1=2*v1-z1;z2=2*v2-z2;
-      const s=hp?x-kq*v1-v2:v2;out[k]+=s*gl;if(outR)outR[k]+=s*gr;if(++p===len)p=0}
+      const s=hp?x-kq*v1-v2:v2;oL[k]+=s*gl;if(oR)oR[k]+=s*gr;if(++p===len)p=0}
      L.z1=z1;L.z2=z2}}
    L.g=g;
    if(L.dub){const x=ins[L.dub.bus];if(x){let p=this.mod(F0-L.dub.comp-L.t0,len);for(let k=0;k<n;k++){b[p]+=x[k];if(++p===len)p=0}}
