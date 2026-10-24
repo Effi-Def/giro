@@ -20,7 +20,7 @@ async def main():
         await pg.route('https://raw.githubusercontent.com/**',route)
         await pg.goto((Path(__file__).resolve().parent.parent/'dist'/'giro.html').as_uri())
         await pg.keyboard.press('Enter');await pg.wait_for_timeout(3000)
-        n0=await pg.evaluate('SOUNDS.length');chk('24 suoni di base',n0==24)
+        n0=await pg.evaluate('SOUNDS.length');chk('39 suoni di base',n0==39)
         await pg.click('#addBtn');await pg.click('[data-gm="violin"]');await pg.wait_for_timeout(2500)
         chk('violino scaricato e aggiunto',await pg.evaluate('SOUNDS.some(s=>s.id==="gm_violin")') and len(calls)>=15)
         await pg.set_input_files('#addFile',str(f));await pg.wait_for_timeout(1500)

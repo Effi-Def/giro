@@ -5,19 +5,19 @@ const GM_URL="https://raw.githubusercontent.com/gleitz/midi-js-soundfonts/gh-pag
 const NOTE_NAMES=["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
 // [famiglia nel pannello, [[cartella del soundfont, nome]...], tenuto (si ripete finché tieni il tasto)]
 const GM=[
- ["Tastiere",[["bright_acoustic_piano","Piano brillante"],["electric_grand_piano","Piano elettrico"],["honkytonk_piano","Piano honky-tonk"],["electric_piano_2","Rhodes 2"],["harpsichord","Clavicembalo"],["clavinet","Clavinet"],["celesta","Celesta"],["music_box","Carillon"]]],
+ ["Tastiere",[["bright_acoustic_piano","Piano brillante"],["electric_grand_piano","Piano elettrico"],["honkytonk_piano","Piano honky-tonk"],["electric_piano_2","Rhodes 2"],["harpsichord","Clavicembalo"],["clavinet","Clavinet"],["music_box","Carillon"]]],
  ["Tastiere",[["percussive_organ","Organo percussivo"],["rock_organ","Organo rock"],["church_organ","Organo da chiesa"],["reed_organ","Armonium"],["accordion","Fisarmonica"],["tango_accordion","Bandoneon"],["harmonica","Armonica"]],1],
- ["Percussioni",[["glockenspiel","Glockenspiel"],["marimba","Marimba"],["xylophone","Xilofono"],["tubular_bells","Campane"],["dulcimer","Dulcimer"],["tinkle_bell","Campanelli"],["steel_drums","Steel drum"],["kalimba","Kalimba"],["woodblock","Woodblock"],["taiko_drum","Taiko"],["melodic_tom","Tom melodico"],["synth_drum","Synth drum"]]],
+ ["Percussioni",[["marimba","Marimba"],["xylophone","Xilofono"],["tubular_bells","Campane"],["dulcimer","Dulcimer"],["tinkle_bell","Campanelli"],["kalimba","Kalimba"],["woodblock","Woodblock"],["taiko_drum","Taiko"],["melodic_tom","Tom melodico"],["synth_drum","Synth drum"]]],
  ["Chitarre",[["acoustic_guitar_nylon","Chitarra classica"],["electric_guitar_jazz","Chitarra jazz"],["electric_guitar_muted","Chitarra muted"],["overdriven_guitar","Chitarra overdrive"],["distortion_guitar","Chitarra distorta"],["guitar_harmonics","Armonici"]]],
- ["Etnici",[["sitar","Sitar"],["banjo","Banjo"],["shamisen","Shamisen"],["koto","Koto"],["orchestral_harp","Arpa"],["fiddle","Fiddle"],["shanai","Shanai"]]],
+ ["Etnici",[["banjo","Banjo"],["shamisen","Shamisen"],["koto","Koto"],["orchestral_harp","Arpa"],["fiddle","Fiddle"],["shanai","Shanai"]]],
  ["Bassi",[["electric_bass_pick","Basso plettro"],["fretless_bass","Basso fretless"],["slap_bass_1","Slap bass 1"],["slap_bass_2","Slap bass 2"]]],
  ["Orchestra",[["violin","Violino"],["viola","Viola"],["cello","Violoncello"],["pizzicato_strings","Archi pizzicato"],["timpani","Timpani"],["orchestra_hit","Orchestra hit"]]],
  ["Orchestra",[["tremolo_strings","Archi tremolo"],["string_ensemble_2","Archi 2"],["synth_strings_2","Synth strings 2"]],1],
  ["Fiati",[["trumpet","Tromba"],["trombone","Trombone"],["tuba","Tuba"],["muted_trumpet","Tromba con sordina"],["french_horn","Corno"],["brass_section","Sezione ottoni"],["synth_brass_2","Synth brass 2"],
   ["soprano_sax","Sax soprano"],["alto_sax","Sax contralto"],["tenor_sax","Sax tenore"],["baritone_sax","Sax baritono"],["oboe","Oboe"],["english_horn","Corno inglese"],["bassoon","Fagotto"],["clarinet","Clarinetto"],
   ["piccolo","Ottavino"],["flute","Flauto"],["recorder","Flauto dolce"],["pan_flute","Flauto di Pan"],["blown_bottle","Bottiglia"],["shakuhachi","Shakuhachi"],["whistle","Fischio"],["ocarina","Ocarina"],["bagpipe","Cornamusa"]],1],
- ["Atmosfere",[["voice_oohs","Voci ooh"],["synth_choir","Synth choir"],["pad_1_new_age","Pad new age"],["pad_4_choir","Pad choir"],["pad_5_bowed","Pad bowed"],["pad_6_metallic","Pad metallico"],["pad_7_halo","Pad halo"],
-  ["fx_1_rain","FX pioggia"],["fx_2_soundtrack","FX soundtrack"],["fx_3_crystal","FX cristallo"],["fx_4_atmosphere","FX atmosfera"],["fx_5_brightness","FX brillante"],["fx_6_goblins","FX goblin"],["fx_7_echoes","FX echi"],["fx_8_scifi","FX sci-fi"]],1],
+ ["Atmosfere",[["voice_oohs","Voci ooh"],["synth_choir","Synth choir"],["pad_1_new_age","Pad new age"],["pad_5_bowed","Pad bowed"],["pad_6_metallic","Pad metallico"],
+  ["fx_1_rain","FX pioggia"],["fx_2_soundtrack","FX soundtrack"],["fx_5_brightness","FX brillante"],["fx_6_goblins","FX goblin"],["fx_7_echoes","FX echi"],["fx_8_scifi","FX sci-fi"]],1],
  ["Synth",[["lead_1_square","Lead onda quadra"],["lead_3_calliope","Lead calliope"],["lead_4_chiff","Lead chiff"],["lead_5_charang","Lead charang"],["lead_6_voice","Lead voce"],["lead_7_fifths","Lead quinte"],["lead_8_bass__lead","Lead basso"]],1]];
 const GM_NAME={};GM.forEach(([c,l,t])=>l.forEach(([f,n])=>GM_NAME[f]={cat:c,name:n,loop:t}));
 

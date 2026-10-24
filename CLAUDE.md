@@ -1,6 +1,6 @@
 # Giro
 
-Looper audio dal vivo nel browser, pensato per suonare con una **M-Audio Axiom AIR Mini 32**. Funziona come una Boss RC-50 / Loopy Pro: suoni sulla tastiera con strumenti campionati, i pad registrano e lanciano fino a 8 loop. È un unico file HTML (`dist/giro.html`, ~9 MB con i campioni dentro) che si apre in Chrome su Windows, senza installazione né internet.
+Looper audio dal vivo nel browser, pensato per suonare con una **M-Audio Axiom AIR Mini 32**. Funziona come una Boss RC-50 / Loopy Pro: suoni sulla tastiera con strumenti campionati, i pad registrano e lanciano fino a 8 loop. È un unico file HTML (`dist/giro.html`, ~18 MB con i campioni dentro) che si apre in Chrome su Windows, senza installazione né internet.
 
 Rispondi sempre in italiano. L'interfaccia è in italiano.
 
@@ -18,15 +18,15 @@ Rispondi sempre in italiano. L'interfaccia è in italiano.
 
 ```
 src/shell.html       HTML + CSS; il segnaposto <!--SCRIPT--> viene sostituito dal build
-src/sounds_meta.js   elenco dei 24 suoni (generato da tools/build_sounds.py)
-src/sounds_data.js   campioni in base64 (generato, 8,7 MB: non aprirlo, non modificarlo a mano)
+src/sounds_meta.js   elenco dei 39 suoni (generato da tools/build_sounds.py)
+src/sounds_data.js   campioni in base64 (generato, 17,5 MB: non aprirlo, non modificarlo a mano)
 src/custom.js        suoni aggiunti dall'utente (catalogo + file del PC), pannello «+ SUONI»
 src/sampler.js       caricamento campioni, voice() dal vivo, renderNote() per la quantizzazione, preview()
 src/core.js          LoopCore: motore del looper, gira dentro l'AudioWorklet
 src/app.js           audio graph, stato dei loop (G), azioni, quantizzazione, MIDI, tastiera del PC
 src/ui.js            interfaccia: griglia degli 8 loop, pannello suoni, suggerimenti, forme d'onda
 tools/build.py       assembla dist/giro.html — da lanciare dopo OGNI modifica a src/
-tools/extract_samples.py, fetch_samples.py, fetch_edm.py, make_edm.py, analyze_samples.py, build_sounds.py   pipeline dei campioni (in samples/)
+tools/extract_samples.py, fetch_samples.py, fetch_edm.py, fetch_vintage.py, make_edm.py, analyze_samples.py, build_sounds.py   pipeline dei campioni (in samples/)
 tests/               test (vedi sotto)
 ```
 
@@ -73,23 +73,26 @@ Si quantizza solo l'attacco, non la durata. La griglia è relativa a `G.origin` 
 
 ## Suoni
 
-24 suoni, campionati, incorporati in `sounds_data.js`:
+39 suoni, campionati, incorporati in `sounds_data.js`:
 - Tastiere: Pianoforte, Rhodes, Organo, Vibrafono
 - Chitarre: Acustica, Elettrica
 - Bassi: Basso elettrico, Contrabbasso, Synth bass, Synth bass 2 (trasposti −12, così suonano già nel registro giusto)
-- Atmosfere: Archi, Pad, Coro
+- Atmosfere: Archi, Pad, Coro, Pad halo, Pad corale, Atmosfera, Cristallo
+- Indie (alla Radiohead / The xx, psichedelia): Mellotron archi, Mellotron coro, Mellotron flauto, Ondes Martenot, Celesta, Glockenspiel, Steel drum, Sitar
 - Synth: Lead (dente di sega), Polysynth, Synth brass, Synth strings, Pad sweep
-- Batterie: Batteria (LinnDrum LM-2), Drum machine 808
-- EDM: Sub 808 (−24), Reese bass (−12), Supersaw, House 909 (batteria)
+- Batterie: Batteria (LinnDrum LM-2), Drum machine 808, CR-8000
+- Techno (era «EDM»): Sub 808 (−24), Reese bass (−12), Supersaw, Acid 303 (−12), Stab dub, House 909 (batteria)
 
-Fonti: soundfont **MusyngKite** da `raw.githubusercontent.com/gleitz/midi-js-soundfonts` (un campione ogni 3 semitoni) e batterie da `raw.githubusercontent.com/smpldsnds/drum-machines` (ogg Opus). Kit house: Roland TR-909 da `smpldsnds/drum-abuse-vol3` (set 1: cassa 01, rullante 01 e 08, clap, rim, tom 02, charleston chiuso 01/02, aperto 03, piatto), portato a 48 kHz in ogg Opus da `tools/fetch_edm.py`. Campioni del drop: `bd_boom` e `drum_splash_hard` da `smpldsnds/sonic-pi-samples` (CC0). Sub 808, Reese e Supersaw sono generati una volta da `tools/make_edm.py` (oscillatori senza aliasing, poi salvati come campioni ogg Opus): supersaw = 7 denti di sega stonati fino a ±28 cent aperti in stereo; reese = 3 denti di sega (0, ±12 cent) + sub, passa-basso a 4 poli, saturazione; sub 808 = sinusoide con caduta d'intonazione all'attacco e decadimento lungo, saturazione leggera (senza loop). Supersaw e reese sono periodici (ogni frequenza multipla di 1/L, L ≈ 1,7 s con la nota esatta): il loop va da 1,2 s a 1,2 s + L ed è scritto per nota in `lp` di `sounds_meta.js` (`makeLoop(b,pts)`), così tenendo la nota non ci sono buchi di volume (con il loop fisso 1,2–2,9 s la dissolvenza scendeva fino al 30%).
+Fonti: soundfont **MusyngKite** da `raw.githubusercontent.com/gleitz/midi-js-soundfonts` (un campione ogni 3 semitoni) e batterie da `raw.githubusercontent.com/smpldsnds/drum-machines` (ogg Opus). Kit house: Roland TR-909 da `smpldsnds/drum-abuse-vol3` (set 1: cassa 01, rullante 01 e 08, clap, rim, tom 02, charleston chiuso 01/02, aperto 03, piatto), portato a 48 kHz in ogg Opus da `tools/fetch_edm.py`. Campioni del drop: `bd_boom` e `drum_splash_hard` da `smpldsnds/sonic-pi-samples` (CC0). Sub 808, Reese e Supersaw sono generati una volta da `tools/make_edm.py` (oscillatori senza aliasing, poi salvati come campioni ogg Opus): supersaw = 7 denti di sega stonati fino a ±28 cent aperti in stereo; reese = 3 denti di sega (0, ±12 cent) + sub, passa-basso a 4 poli, saturazione; sub 808 = sinusoide con caduta d'intonazione all'attacco e decadimento lungo, saturazione leggera (senza loop). Supersaw e reese sono periodici (ogni frequenza multipla di 1/L, L ≈ 1,7 s con la nota esatta): il loop va da 1,2 s a 1,2 s + L ed è scritto per nota in `lp` di `sounds_meta.js` (`makeLoop(b,pts)`), così tenendo la nota non ci sono buchi di volume (con il loop fisso 1,2–2,9 s la dissolvenza scendeva fino al 30%). Sempre da `make_edm.py`: acid 303 = dente di sega in un passa-basso risonante a 3 poli che si chiude dopo l'attacco (`sweep_lp`, coefficienti a blocchi di 32 campioni), saturazione; stab dub = accordo minore di settima (0 3 7 10, un tasto = un accordo) con filtro che si chiude in 0,1 s; ondes = sinusoide con 2ª e 3ª armonica e vibrato a 5,5 Hz che entra dopo 0,25 s, periodica come il supersaw (anche il vibrato è multiplo di 1/L). `make_edm.py edm_acid …` rigenera solo le cartelle indicate.
+
+Mellotron e CR-8000 da `tools/fetch_vintage.py`: tre nastri (MKII VIOLINS, 8VOICE CHOIR, TRON FLUTE) da `smpldsnds/archiveorg-mellotron`, un tasto ogni 3, primi 4 s dei nastri da 8 s, mono 24 kHz ogg Opus (~230 KB per suono). I nomi dei file non dicono l'ottava vera (archi e flauto suonano 2 ottave sopra il nome, il coro 1): lo script misura la fondamentale del campione centrale e sposta tutti i tasti. Roland CR-8000 da `smpldsnds/drum-machines`: campanaccio sul tasto del rullante 2, conga bassa sul tom medio, clave sul charleston corto (come le maracas della 808, chiude il charleston aperto). Gli 8 strumenti General MIDI incorporati (pad halo e corale, atmosfera, cristallo, celesta, glockenspiel, steel drum, sitar) sono stati tolti dal catalogo «+ SUONI».
 
 Dettagli:
-- I campioni durano ~3,16 s. Organo, Archi, Pad, Coro e tutti i Synth (`loop:1`) ottengono un tratto ripetuto con dissolvenza incrociata tra 1,2 e 2,9 s (`makeLoop`), così durano finché tieni il tasto.
+- I campioni durano ~3,16 s (Mellotron 4 s). Organo, Archi, Pad, Coro, i Synth, i pad nuovi, Mellotron e ondes (`loop:1`) ottengono un tratto ripetuto con dissolvenza incrociata tra 1,2 e 2,9 s (`makeLoop`), così durano finché tieni il tasto.
 - `gain` è normalizzato sull'RMS (`analyze_samples.py`) e corretto a orecchio con i moltiplicatori in `build_sounds.py`.
 - `off` salta il silenzio iniziale degli mp3: conta per il tempismo dei loop.
 - Batterie: stessa mappa in ogni ottava. Do cassa, Do# rim, Re rullante, Re# clap, Mi rullante 2, Fa tom basso, Fa# charleston, Sol tom medio, Sol# charleston corto, La tom alto, La# charleston aperto (chiuso dal charleston chiuso), Si piatto.
-- Per aggiungere o cambiare un suono: modifica `INST` in `fetch_samples.py` e la lista `S` in `build_sounds.py`, poi `extract → fetch → analyze → build_sounds → build` (i suoni EDM: `make_edm.py` e `fetch_edm.py` al posto di `fetch`). `samples/` non è nel repo: `extract_samples.py` ci rimette i campioni già incorporati, compresi EDM, kit house e campioni del drop (le batterie vecchie non hanno uno script di download). Senza ffmpeg, `analyze_samples.py` decodifica con Chromium via Playwright (o con Chrome installato, se manca), con lo stesso downmix di ffmpeg (i guadagni tornano identici; l'attacco del pianoforte cambia di 0,1 ms col decoder di Chrome).
+- Per aggiungere o cambiare un suono: modifica `INST` in `fetch_samples.py` e la lista `S` in `build_sounds.py`, poi `extract → fetch → analyze → build_sounds → build` (i suoni generati: `make_edm.py`; kit house e drop: `fetch_edm.py`; Mellotron e CR-8000: `fetch_vintage.py`). `samples/` non è nel repo: `extract_samples.py` ci rimette i campioni già incorporati, compresi suoni generati, Mellotron, kit house, CR-8000 e campioni del drop (le batterie vecchie non hanno uno script di download). Senza ffmpeg, `analyze_samples.py` decodifica con Chromium via Playwright (o con Chrome installato, se manca), con lo stesso downmix di ffmpeg (i guadagni tornano identici; l'attacco del pianoforte cambia di 0,1 ms col decoder di Chrome).
 - **Suoni aggiunti dall'utente** (`custom.js`, pulsante «+ SUONI»): catalogo di ~100 strumenti General MIDI dello stesso soundfont MusyngKite, scaricati dalla pagina (CORS aperto; serve internet solo per scaricare) un campione ogni 3 semitoni, più file audio del PC (nota presa dal nome, es. `basso A2.wav`, altrimenti Do centrale; famiglia «Miei»). Restano in IndexedDB (db `giro_sounds`), guadagno e attacco calcolati come `analyze_samples.py`, si aggiungono a `SOUNDS` all'avvio (`loadCustomSounds`); il suono scelto si riprende da `SET.sid`. Test: `tests/custom_test.py` (download simulato, usa Chrome installato).
 - Non c'è anteprima quando scegli un suono: è stata tolta perché suonava sopra i loop.
 
@@ -122,7 +125,7 @@ Dal PC: `A…K` note, `Z/X` ottava, `1–8` loop, `Maiusc+1–8` seleziona il lo
 - `python tests/flow_test.py` — flusso reale in Chromium headless con Playwright: primo loop, secondo loop, sovraincisione, annulla, stop a tempo, cancella; controlla che non ci siano errori e scroll orizzontale a 420 px.
 - `python tests/quant_test.py` — suona note fuori griglia e verifica che nel loop finiscano sulla griglia; verifica la sovraincisione quantizzata, i cambi di Q a metà ripresa e i levare a 150 bpm con 1/8, reggae e funk in levare nel secondo loop.
 - `python tests/live_test.py` — comandi dal vivo: famiglie di suoni e tasto centrale, pitch bend che seleziona il loop, break, salita (passa-alto, riser, rullata a tempo), silenzio prima dell'1, drop con rientro e pompa automatica, rientro dei pad sull'1, pompa e wobble, modi delle manopole e messaggi HyperControl simulati (pulsante dei modi, manopole, tasto centrale, pad), battito visivo, ▶ ignorato mentre suona, ■ a fine giro, ■■ subito, ■ tenuto che cancella tutto (e pressione breve che non cancella), aggancio delle manopole, note bloccate (■ da fermo, all notes off), tasti E/L che suonano e N/C che comandano, focus perso.
-- `python tests/sounds_test.py` — caricamento dei 24 suoni, livelli misurati, registrazione con pianoforte e batteria.
+- `python tests/sounds_test.py` — caricamento dei 39 suoni, livelli misurati (i suoni melodici stanno fra 0,07 e 0,10), registrazione con pianoforte e batteria.
 
 Nel container il Chromium di Playwright è già installato; avvialo con `--autoplay-policy=no-user-gesture-required`. Sul PC dell'utente c'è solo Chrome: i test che lanciano `p.chromium.launch()` senza `channel` lì vanno fatti girare con `channel='chrome'`. Il MIDI reale non si può testare: risulta "non consentito" ed è normale.
 
