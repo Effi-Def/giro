@@ -101,3 +101,18 @@ const join=it=>{const d=new Float32Array(it.len);let o=0;for(const ch of it.chun
  const outs=Array.from({length:8},()=>[new Float32Array(N),new Float32Array(N)]),o=new Float32Array(N),oR=new Float32Array(N);
  for(let b=0;b<40;b++)r.process([null,null,null],o,b*N,N,oR,outs);
  ok(Math.abs(outs[0][0][5]-.25)<1e-3&&Math.abs(outs[1][1][5]-.5)<1e-3&&outs[2][0].every(x=>x===0)&&o.every(x=>x===0),'uscite separate per loop')}
+// mix automatico: passa-alto per loop (toglie i bassi, lascia passare gli acuti) e apertura stereo (in mono non cambia niente)
+{const r=new LoopCore(sr),len=4000,lo=new Float32Array(len),hi=new Float32Array(len);
+ for(let j=0;j<len;j++){lo[j]=.5*Math.sin(2*Math.PI*40*j/sr);hi[j]=.5*Math.sin(2*Math.PI*2000*j/sr)}
+ r.cmd({type:'load',i:0,data:lo,len,t0:0,vol:1,pan:0,fx:0,hp:300});r.cmd({type:'load',i:1,data:hi,len,t0:0,vol:1,pan:0,fx:0,hp:300});
+ r.cmd({type:'gate',i:0,on:1,frame:0});r.cmd({type:'gate',i:1,on:1,frame:0});
+ const outs=Array.from({length:8},()=>[new Float32Array(N),new Float32Array(N)]),o=new Float32Array(N),oR=new Float32Array(N);let e0=0,e1=0;
+ for(let b=0;b<60;b++){r.process([null,null,null],o,b*N,N,oR,outs);if(b>=30)for(let k=0;k<N;k++){e0+=outs[0][0][k]**2;e1+=outs[1][0][k]**2}}
+ const ref=.125*30*N; // energia di un seno da 0,5 non filtrato
+ ok(e0/ref<.05&&e1/ref>.9,'passa-alto a 300 Hz: 40 Hz quasi spento ('+(e0/ref).toFixed(3)+'), 2 kHz intatto ('+(e1/ref).toFixed(3)+')')}
+{const r=new LoopCore(sr),len=4000,d=new Float32Array(len);for(let j=0;j<len;j++)d[j]=Math.sin(j*.37)*Math.sin(j*.011);
+ r.cmd({type:'load',i:0,data:d,len,t0:0,vol:1,pan:0,fx:0,wid:.6});r.cmd({type:'gate',i:0,on:1,frame:0});
+ const o=new Float32Array(N),oR=new Float32Array(N);let side=0,mid=0,err=0;const w=1/Math.sqrt(1+.36);
+ for(let b=0;b<60;b++){r.process([null,null,null],o,b*N,N,oR);if(b>=30)for(let k=0;k<N;k++){const x=d[(b*N+k)%len];side+=(o[k]-oR[k])**2;mid+=(o[k]+oR[k])**2;err=Math.max(err,Math.abs((o[k]+oR[k])/2-x*w))}}
+ ok(side/mid>.1&&err<1e-4,'apertura stereo: sinistra e destra diverse (laterale/centro '+(side/mid).toFixed(2)+'), sommate tornano il loop ('+err.toExponential(1)+')');
+ r.cmd({type:'reset'});r.process([null,null,null],o,0,N,oR);ok(r.loops[0].wid===.6,'reset conserva l\'apertura stereo')}

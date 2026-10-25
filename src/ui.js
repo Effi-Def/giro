@@ -52,7 +52,7 @@ function build(){
  $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
  [["#cut","cut"],["#rev","rev"],["#master","master"]].forEach(([s,k])=>{$(s).value=SET[k];$(s).oninput=e=>{SET[k]=+e.target.value;applyMix();saveSet()}});
- $("#exportBtn").onclick=()=>{closeSettings();exportWav()};
+ $("#exportBtn").onclick=()=>{closeSettings();exportWav()};$("#amixBtn").onclick=toggleAutoMix;
  $("#diagStart").onclick=()=>{diagOn=true;diagLines.clear();$("#diag").textContent="In ascolto: tocca i controlli dell'Axiom…"};
  $("#startBtn").onclick=start;
 }
@@ -102,6 +102,7 @@ function render(){
  $$("#sounds .snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||"")+(fxActive(LDJ[+b.dataset.loop])?" · FX":""):""});
+ $("#amixBtn").textContent=SET.amix?"SÌ":"NO";$("#amixBtn").classList.toggle("on",!!SET.amix);
  $("#playBtn").textContent=G.stopAt?"■ SUBITO":G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
  $("#dropBtn").hidden=!G.running;$("#dropBtn").textContent=building?"▶ LASCIA: DROP":G.drop?"▶ RIENTRA":"▶ BREAK";$("#dropBtn").classList.toggle("on",G.drop||building||!!G.dropAt);
  $("#dubBtn").textContent=G.loops[G.sel].state==="dub"?`● FINE (loop ${G.sel+1})`:`● SOVRAINCIDI ${G.sel+1}`;

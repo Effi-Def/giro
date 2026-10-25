@@ -1,6 +1,6 @@
 // ---------- Audio ----------
 let ctx,sr,node,core=null,ready=false,masterIn,masterOut,cutF,dry,wet,noiseBuf,liveBus=[],usingWorklet=false,bHP,dropG,fxBus,lim,safeClip,PG;
-const SET={sound:0,cut:1,rev:.12,master:.9,oct:0,quant:4,mix:2};
+const SET={sound:0,cut:1,rev:.12,master:.9,oct:0,quant:4,mix:2,amix:1};
 // mix: 2 = mix più grosso; chi aveva le impostazioni di prima riparte col riverbero più basso
 function loadSet(){try{Object.assign(SET,JSON.parse(localStorage.getItem("giro5.set")||"{}"))}catch(_){}SET.sound=Math.min(SET.sound|0,SOUNDS.length-1);delete SET.latMs;
  if(SET.mix!==2){SET.rev=Math.min(SET.rev,.12);SET.mix=2}}
@@ -210,7 +210,7 @@ function audioDelayMs(){return((ctx.outputLatency||0)+(ctx.baseLatency||0))*1000
 // ---------- Stato del looper ----------
 const NL=8;
 const G={base:null,beats:4,origin:0,running:false,stopAt:0,drop:false,dropAt:0,dubTake:[],firstOn:[],cur:0,sel:0,ev:[],
- loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,pan:0,fx:0,undo:0,redo:0}))};
+ loops:Array.from({length:NL},()=>({sound:null,state:"empty",has:false,muted:false,pend:null,len:0,t0:0,start:0,end:0,first:false,peaks:null,vol:.8,pan:0,fx:0,undo:0,redo:0,mx:null,ar:null,pm:false}))};
 const anyHas=()=>G.loops.some(l=>l.has||l.state==="rec"||l.state==="closing");
 function Q(){let q=G.base,k=0;while(q/2>=sr*.9&&k<3){q/=2;k++}return Math.round(q)}
 function nextQ(f){const q=Q();return G.origin+Math.ceil((f-G.origin+sr*.03)/q)*q}
@@ -274,7 +274,9 @@ function tap(i){
 function beginRec(i){const L=G.loops[i],f=nowF();
  if(L.first){G.running=false;G.firstOn=[];send({type:"rec",i,bus:G.cur,start:f,comp:0})}
  else{if(!G.running)playAll(f);send({type:"rec",i,bus:G.cur,start:f,comp:latencyFrames()})}
- L.start=f;L.state="rec";L.sound=SET.sound;L.q=SET.quant;render()}
+ L.start=f;L.state="rec";L.sound=SET.sound;L.q=SET.quant;
+ // loop nuovo: il pan automatico del loop di prima non vale più (quello girato a mano resta finché il mix automatico non ne dà uno)
+ if(L.ar&&!L.pm&&L.pan){L.pan=0;send({type:"pan",i,v:0})}L.mx=freshMx();L.ar=null;L.pm=false;render()}
 
 function close(i){const L=G.loops[i],f=nowF();
  if(L.first){
@@ -473,7 +475,7 @@ function wavBlob(L,R,rate){const n=L.length,d=new DataView(new ArrayBuffer(44+n*
 function doExport(items){
  const c=new LoopCore(sr);let max=0;
  for(const it of items){const L=G.loops[it.i];if(!L||L.muted)continue;
-  c.exec({type:"load",i:it.i,data:it.data,len:it.len,t0:it.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx},0);
+  c.exec({type:"load",i:it.i,data:it.data,len:it.len,t0:it.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx,hp:L.shp||0,wid:L.swid||0},0);
   const o=c.loops[it.i];o.g=o.vol;o.gt=1;max=Math.max(max,it.len)}
  c.msgs=[];if(!max){flashHint("Niente da esportare: i loop sono fermi.");return}
  const L=new Float32Array(max),R=new Float32Array(max),a=new Float32Array(512),b=new Float32Array(512),none=[null,null,null];
@@ -489,7 +491,7 @@ function onDump(m){
  if(!m.has.some(Boolean)){if(!G.loops.some(L=>L.state==="rec"||L.state==="closing")&&!anyHas())idb("readwrite",s=>{s.clear()}).catch(()=>{});return}
  if(!G.base)return;
  // posizione e lunghezza dallo stato di Giro (si spostano insieme a G.origin), i campioni solo dei loop cambiati
- const loops=[];G.loops.forEach((L,i)=>{if(m.has[i]&&L.has)loops.push({i,len:L.len,rel:L.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound})});
+ const loops=[];G.loops.forEach((L,i)=>{if(m.has[i]&&L.has)loops.push({i,len:L.len,rel:L.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound,mx:L.mx,ar:L.ar,pm:L.pm})});
  const rec={v:2,sr,base:G.base,beats:G.beats,loops};
  idb("readwrite",s=>{s.put(rec,"s");for(const it of items)s.put(it.data,"L"+it.i);m.has.forEach((h,i)=>{if(!h)s.delete("L"+i)})}).catch(()=>{})}
 async function restoreSession(){
@@ -501,7 +503,8 @@ async function restoreSession(){
  restoring=true;
  G.base=rec.base;G.beats=rec.beats;G.origin=nowF();G.running=false;
  rec.loops.forEach((s,k)=>{const L=G.loops[s.i],data=datas[k];if(!L||!data||data.length!==s.len)return;
-  Object.assign(L,{vol:s.vol,pan:s.pan,fx:s.fx,sound:s.sound});
+  // mix automatico: le sessioni di prima non hanno le note (mx) e restano come erano; il loro pan conta come girato a mano
+  Object.assign(L,{vol:s.vol,pan:s.pan,fx:s.fx,sound:s.sound,mx:s.mx||null,ar:s.ar??null,pm:s.pm??s.pan!==0});
   send({type:"load",i:s.i,data,len:s.len,t0:G.origin+s.rel,vol:s.vol,pan:s.pan,fx:s.fx},[data.buffer])});
  if(rec.v===1)send({type:"dump",all:true}); // riscrive subito nel formato nuovo
  setTimeout(()=>{restoring=false},500);
@@ -520,7 +523,7 @@ function onCoreMsg(m){
 
 let perfLast=-1;
 function tick(){if(!ready)return;const f=nowF();let ch=false;
- rollTick();routeLoops();if(G.dropAt&&f>=G.dropAt){G.dropAt=0;bld=null;flashHint("<b>DROP!</b>")}
+ rollTick();routeLoops();autoMix();if(G.dropAt&&f>=G.dropAt){G.dropAt=0;bld=null;flashHint("<b>DROP!</b>")}
  if(perf&&Math.floor(perfSecs())!==perfLast){perfLast=Math.floor(perfSecs());render()}
  if(G.stopAt&&f>=G.stopAt){stopAll();ch=true}
  // un loop cancellato perde anche i suoi effetti
@@ -529,6 +532,45 @@ function tick(){if(!ready)return;const f=nowF();let ch=false;
   if(L.state==="closing"&&f>=L.end){if(L.q)renderRec(G.loops.indexOf(L));L.state="play";rotateBus();ch=true}
   if(L.pend&&f>=L.pend.at){L.muted=L.pend.muted;L.pend=null;ch=true}});
  if(ch)render()}
+
+// ---------- Mix automatico ----------
+// Come farebbe un fonico: ogni loop prende un ruolo dai suoni suonati dentro e riceve pan, passa-alto e apertura stereo.
+// I loop sono mono: senza questo finivano tutti al centro uno sopra l'altro, e accordi e tappeti riempivano i bassi
+// insieme al basso (nelle esibizioni registrate dall'utente: quasi mono, −24 dB di laterale, il grosso fra 60 e 400 Hz).
+// hp: passa-alto in Hz · pan: quanto va di lato (il lato lo sceglie autoMix) · wid: apertura stereo (core.js)
+const ROLES={rit:{hp:0,pan:0,wid:0},per:{hp:150,pan:.3,wid:0},bas:{hp:0,pan:0,wid:0},acc:{hp:150,pan:.35,wid:.2},
+ tap:{hp:220,pan:0,wid:.6},mel:{hp:200,pan:.2,wid:.15},col:{hp:350,pan:.5,wid:.3}};
+const ROLE_ID={vibra:"acc",cristallo:"col",mtarchi:"tap",mtcoro:"tap",mtflauto:"mel",ondes:"mel",celesta:"col",glock:"col",steeldrum:"col",sitar:"mel",
+ lead:"mel",polysynth:"acc",synthbrass:"acc",synthstrings:"tap",sweep:"tap",sub808:"bas",reese:"bas",acid:"bas",supersaw:"tap",stab:"acc"};
+const ROLE_CAT={Tastiere:"acc",Chitarre:"acc",Bassi:"bas",Atmosfere:"tap",Synth:"acc",Etnici:"mel",Fiati:"mel",Orchestra:"mel",Percussioni:"col"};
+// i file del PC («Miei») non hanno un ruolo: restano come sono
+function soundRole(id,kick){const s=SOUNDS.find(x=>x.id===id);if(!s)return null;if(s.drum)return kick?"rit":"per";
+ return ROLE_ID[s.id]||(s.cat==="Orchestra"&&s.loop?"tap":ROLE_CAT[s.cat])||null}
+// mx: note suonate nel loop per suono (w), nota più bassa che si sente (lo), se la batteria ha cassa o tom basso (kick)
+const freshMx=()=>({w:{},lo:null,kick:false});
+function mxNote(L,s,note){const M=L.mx||(L.mx=freshMx());M.w[s.id]=(M.w[s.id]||0)+1;
+ if(s.drum){if(note%12===0||note%12===5)M.kick=true}else{const n=note+(s.tr||0);if(M.lo==null||n<M.lo)M.lo=n}}
+// il ruolo è quello del suono con più note
+function loopRole(L){const M=L.mx;if(!M||!L.has)return null;let r=null,w=0;
+ for(const id in M.w){const q=soundRole(id,M.kick);if(q&&M.w[id]>w){r=q;w=M.w[id]}}return r}
+function autoTarget(i){const L=G.loops[i],r=SET.amix?loopRole(L):null;if(!r)return{r:null,hp:0,wid:0};
+ const M=L.mx,bass=G.loops.some((o,j)=>j!==i&&loopRole(o)==="bas");let hp=Infinity;
+ for(const id in M.w){const q=soundRole(id,M.kick);hp=Math.min(hp,q?ROLES[q].hp:0)} // con dentro anche un basso, il passa-alto è quello del basso
+ // le note più basse restano: senza un basso nel giro sono loro il basso, con il basso ne perdono solo la fondamentale
+ if(hp&&M.lo!=null)hp=Math.min(hp,(bass?1.2:.7)*440*Math.pow(2,(M.lo-69)/12));
+ return{r,hp:hp>=40?Math.round(hp):0,wid:ROLES[r].wid}}
+// gira in tick: manda al core solo quello che cambia. Il pan si decide una volta, quando il loop prende il suo ruolo,
+// dal lato che bilancia gli altri; il primo loop resta al centro. Un pan girato a mano (pm) non si tocca più.
+function autoMix(){
+ G.loops.forEach((L,i)=>{const t=autoTarget(i);
+  if(t.hp!==L.shp){L.shp=t.hp;send({type:"hp",i,v:t.hp})}
+  if(t.wid!==L.swid){L.swid=t.wid;send({type:"wid",i,v:t.wid})}
+  if(!L.has||L.pm||t.r===L.ar)return;L.ar=t.r;let x=0;
+  if(t.r&&ROLES[t.r].pan&&G.loops.some((o,j)=>j!==i&&o.has)){const S=G.loops.reduce((a,o,j)=>a+(j!==i&&o.has?o.pan:0),0);
+   x=(S>.01?-1:S<-.01?1:t.r==="mel"?1:-1)*ROLES[t.r].pan}
+  if(x!==L.pan){L.pan=x;send({type:"pan",i,v:x});saveSoon()}})}
+function toggleAutoMix(){SET.amix=SET.amix?0:1;saveSet();autoMix();
+ flashHint(SET.amix?"Mix automatico acceso: ogni loop prende il suo posto (pan, bassi puliti, apertura).":"Mix automatico spento: i loop restano al centro, senza filtri.");render()}
 
 // ---------- Note ----------
 const held=new Map();
@@ -543,6 +585,7 @@ function noteOn(note,vel){if(!ready)return;
   ev={i,kind:ti>=0?"rec":"dub",note,vel,sound:SET.sound,q:L.q,on:nowF(),off:null,comp:L.first&&ti>=0?0:latencyFrames()};G.ev.push(ev)}
  // nota annotata: il suono dal vivo non va al looper, nel loop entra la versione a tempo; altrimenti va sul bus registrato
  if(ev)ev.lv=DJV[7]; // il volume della tastiera vale anche per la nota rimessa a tempo nel loop
+ if(i>=0)mxNote(G.loops[i],SOUNDS[SET.sound],note);
  held.set(note,{v:voice(SET.sound,note,vel,nowT(),ev?masterIn:liveBus[G.cur],DJV[7]),sus:false,ev});uiNote(note,true)}
 let sustain=false;
 function noteOff(note,force){const h=held.get(note);if(!h)return;if(sustain&&!force){h.sus=true;return}
@@ -608,7 +651,7 @@ function knob(i,v){const L=G.loops[i];if(knobMode==="dj")return djKnob(i,v);
  if(L.has)saveSoon();
  if(knobMode==="vol"){L.vol=v/127;send({type:"vol",i,v:L.vol});render();return}
  let x=Math.max(-1,Math.min(1,(v-64)/63));if(Math.abs(x)<.03)x=0;
- if(knobMode==="pan"){L.pan=x;send({type:"pan",i,v:x});
+ if(knobMode==="pan"){L.pan=x;L.pm=true;send({type:"pan",i,v:x});
   flashHint(`Loop ${i+1}: ${x===0?"al centro":Math.round(Math.abs(x)*100)+"% a "+(x<0?"sinistra":"destra")}`)}
  else{L.fx=x;send({type:"fx",i,v:x});
   flashHint(`Loop ${i+1}: ${x===0?"filtro spento":x<0?"più scuro (passa-basso) "+Math.round(-x*100)+"%":"più leggero (passa-alto) "+Math.round(x*100)+"%"}`)}
