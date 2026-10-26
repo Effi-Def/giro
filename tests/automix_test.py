@@ -18,17 +18,20 @@ async def main():
           const snd=id=>setSound(SOUNDS.findIndex(s=>s.id===id));
           const S=i=>{const L=G.loops[i];return{r:L.ar,pan:+L.pan.toFixed(2),hp:L.shp,wid:L.swid}};
           SET.quant=0;SET.amix=1;
+          const T=()=>tips().map(t=>({s:SOUNDS[t.i].id,w:soundWorld(SOUNDS[t.i]),why:t.why,odd:!!t.odd}));
+          res.tips0=T();res.tipsDom=document.querySelectorAll("#tips .snd.tip").length;
           // primo loop, pianoforte sul Do centrale: da solo resta al centro, passa-alto degli accordi
-          snd("piano");tap(0);await wait(30);const T=ctx.currentTime;noteOn(60,.8);await wait(150);noteOff(60);
-          while(ctx.currentTime-T<2)await wait(1);tap(0);await wait(100);res.first=S(0);
+          snd("piano");tap(0);await wait(30);const T0=ctx.currentTime;noteOn(60,.8);await wait(150);noteOff(60);
+          while(ctx.currentTime-T0<2)await wait(1);tap(0);await wait(100);res.first=S(0);res.tips1=T();
           const rec=async(i,id,notes)=>{snd(id);tap(i);await wait(30);for(const n of notes){noteOn(n,.8);await wait(120);noteOff(n)}
            await wait(300);tap(i);while(G.loops[i].state!=="play")await wait(20);await wait(60)};
-          await rec(1,"basso",[40,43]);res.bass=S(1);res.firstWithBass=S(0);
+          await rec(1,"basso",[40,43]);res.bass=S(1);res.firstWithBass=S(0);res.tips2=T();
           await rec(2,"pad",[60,64,67]);res.pad=S(2);
           await rec(3,"rhodes",[64,67]);res.keys2=S(3);
           await rec(4,"elettrica",[67]);res.keys3=S(4);
           await rec(5,"batteria",[42,42,42]);res.hats=S(5);
-          await rec(6,"808",[36,42]);res.kit=S(6);
+          await rec(6,"808",[36,42]);res.kit=S(6);res.tipsAll=T();
+          res.tipsStable=JSON.stringify(T())===JSON.stringify(res.tipsAll);render();res.tipsShown=[...document.querySelectorAll("#tips .snd.tip")].map(b=>SOUNDS[+b.dataset.s].id);
           // pan a mano: resta anche spegnendo e riaccendendo
           setKnobMode("pan");knob(3,100);const man=G.loops[3].pan;
           toggleAutoMix();await wait(60);res.off=G.loops.map((L,i)=>i===3?L.pan===man:L.pan===0&&!L.shp&&!L.swid).every(Boolean);
@@ -51,6 +54,13 @@ async def main():
         ok(r['off'],'mix automatico spento: tutto al centro e senza filtri, il pan girato a mano resta')
         ok(r['on'],'riacceso: tornano apertura e lati, il pan a mano resta')
         ok(r['wOn']>-20 and r['wOff']<-60,'export: laterale %s dB col mix automatico, %s dB senza'%(r['wOn'],r['wOff']))
+        why=lambda k:[t['why']+('*' if t['odd'] else '') for t in r[k]]
+        ok(len(r['tips0'])==3 and r['tipsDom']==3,'consigli: tre suoni in vista anche prima di registrare')
+        ok(why('tips1')==['ritmo','basso','ritmo*'] and r['tips1'][2]['w']!='ac' and all(t['w']=='ac' for t in r['tips1'][:2]),'dopo il pianoforte: ritmo e basso acustici, ritmo inatteso da un altro mondo %s'%r['tips1'])
+        ok(why('tips2')==['ritmo','tiene le note','ritmo*'],'dopo il basso: ritmo e un tappeto %s'%why('tips2'))
+        used={'piano','basso','pad','rhodes','elettrica','batteria','808'}
+        ok(why('tipsAll')==['melodia','aria in alto','melodia*'] and not used&{t['s'] for t in r['tipsAll']},'col giro pieno: melodia e colore, mai suoni già usati %s'%r['tipsAll'])
+        ok(r['tipsStable'] and r['tipsShown']==[t['s'] for t in r['tipsAll']],'consigli fermi finché i loop non cambiano, uguali a quelli disegnati')
         ok(not errs,'nessun errore '+str(errs))
         await b.close()
 asyncio.run(main())

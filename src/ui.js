@@ -13,6 +13,7 @@ function loopColor(i){const L=G.loops[i];
  if(L.state==="armed")return"arm";if(L.state==="rec"||L.state==="closing")return"rec";if(L.state==="dub")return"dub";
  if(L.state==="play")return(L.muted||!G.running)?"off":"play";return"empty"}
 
+let tipsShown=null; // consigli già disegnati: si ridisegnano solo se cambiano
 function buildSounds(){
  const cats=[...new Set(SOUNDS.map(s=>s.cat))];
  $("#sounds").innerHTML=cats.map(c=>`<div class="cat"><span class="catn">${c}</span><div class="tiles">${
@@ -99,6 +100,12 @@ function render(){
   if(i===7)el.querySelector("span").innerHTML=`<b>8</b> ${fxScope==="loop"?"VOLUME":"TASTIERA"}`;
   if(i===0){u.style.left=Math.min(50,50+a*50)+"%";u.style.width=Math.abs(a)*50+"%"}else{u.style.left="0";u.style.width=a*100+"%"}
   el.classList.toggle("on",i===0?a!==0:i===5?V.wbK>0:i===6?V.rollK>0:i===7?a<.98:a>.02);el.querySelector("small").textContent=djText(i)});
+ {const T=tips(),k=T.map(t=>t.i+t.why).join();
+  if(k!==tipsShown){tipsShown=k;
+   $("#tips").innerHTML=`<span class="catn">Consigliati</span>`+T.map(t=>`<button class="snd tip${t.odd?" odd":""}" data-s="${t.i}">${SOUNDS[t.i].name}<small>${t.odd?"inatteso · ":""}${t.why}</small></button>`).join("");
+   $$("#tips .snd").forEach(b=>b.onclick=()=>setSound(+b.dataset.s))}
+  $$("#tips .snd").forEach(b=>b.classList.toggle("on",+b.dataset.s===SET.sound));
+  $$("#sounds .snd").forEach(b=>b.classList.toggle("tipped",T.some(t=>t.i===+b.dataset.s)))}
  $$("#sounds .snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
  $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||"")+(fxActive(LDJ[+b.dataset.loop])?" · FX":""):""});

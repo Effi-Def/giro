@@ -72,6 +72,14 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 .snd.on{background:var(--sel);border-color:var(--sel);color:#0d1420}
 .snd.wait{opacity:.5}
 .snd:disabled{cursor:default}
+/* consigli: tre suoni con il motivo sotto; quello inatteso ha il bordo tratteggiato. Nel pannello i consigliati hanno il bordo ambra */
+.tips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.tips .catn{margin-right:4px}
+.snd.tip{border-color:var(--arm);text-align:left}
+.snd.tip.odd{border-style:dashed}
+.snd.tip small{display:block;margin-top:3px;font:500 11px/1 var(--f-body);letter-spacing:0;color:var(--dim)}
+.snd.tip.on small{color:#0d1420}
+.snd.tipped{border-color:color-mix(in srgb,var(--arm) 70%,var(--line))}
 .drumkeys{display:flex;gap:4px;flex-wrap:wrap}
 .dk{font:12px var(--f-body);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:4px 7px;display:flex;gap:5px}
 .dk.bk{background:#0b0d10}
@@ -185,6 +193,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 
   <section class="soundbar" aria-label="Suoni">
     <div class="sbh"><span class="sbt">Suono</span><span class="sbk">▲ ▼ cambia famiglia · tasto centrale: suono successivo · oppure clic</span><button class="small" id="addBtn" style="margin-left:auto">+ SUONI</button></div>
+    <div class="tips" id="tips"></div>
     <div class="sounds" id="sounds"></div>
     <div class="drumkeys" id="drumKeys" hidden></div>
   </section>
