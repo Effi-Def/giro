@@ -156,10 +156,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 .tbl td{border-top:1px solid var(--line);padding:6px 4px;vertical-align:top}
 .tbl td:first-child{font:600 14px var(--f-display);letter-spacing:.06em;white-space:nowrap;width:9em}
 #diag{font:12px/1.5 var(--f-mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;max-height:150px;overflow:auto;white-space:pre;margin:0}
-#gate .box{max-width:440px;text-align:center;display:flex;flex-direction:column;gap:16px;align-items:center}
-#gate h1{margin:0;font:700 66px/1 var(--f-display);letter-spacing:.14em}
-#gate p{margin:0;color:var(--dim)}
-#startBtn{background:var(--play);color:#0c1a0f;border:0;border-radius:999px;padding:14px 32px;font:700 20px var(--f-display);letter-spacing:.12em}
+#gate .box,#away .box{max-width:440px;text-align:center;display:flex;flex-direction:column;gap:16px;align-items:center}
+#gate h1,#away h1{margin:0;font:700 66px/1 var(--f-display);letter-spacing:.14em}
+#away h1{font-size:48px}
+#gate p,#away p{margin:0;color:var(--dim)}
+#away{z-index:30}
+#startBtn,#awayBtn{background:var(--play);color:#0c1a0f;border:0;border-radius:999px;padding:14px 32px;font:700 20px var(--f-display);letter-spacing:.12em}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 </head>
@@ -169,6 +171,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
   <p>Looper per suonare con l'Axiom. Premi un tasto qualsiasi o clicca per accendere l'audio e caricare i suoni.</p>
   <button id="startBtn">INIZIA</button>
   <p class="help" id="gateMidi"></p>
+</div></div>
+<div id="away" class="overlay" hidden><div class="box">
+  <h1>IN PAUSA</h1>
+  <p>Giro è aperto in un'altra scheda e suona lì. Qui audio, Axiom e tastiera sono fermi, così le note non suonano due volte.</p>
+  <button id="awayBtn">USA QUESTA SCHEDA</button>
 </div></div>
 
 <div class="app">
@@ -278,7 +285,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>▲ ▼</td><td>Cambia famiglia di suoni (riprende l'ultimo suono usato in quella famiglia).</td></tr>
         <tr><td>Tasto centrale</td><td>Suono successivo nella stessa famiglia.</td></tr>
         <tr><td>Quantizza</td><td>Le note registrate vengono rimesse a tempo sulla griglia (1/16 o 1/8). Il primo loop decide il tempo: dura quanto vuoi, la griglia lo divide in parti uguali. Funziona con i suoni di Giro, non con un microfono.</td></tr>
-        <tr><td>Manopole 1–8</td><td>Secondo il modo scelto col pulsante MANOPOLE in alto (o tasto M): <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, <b>Effetti DJ</b> = effetti su tutto il mix o sul loop selezionato: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco a tempo · 3 riverbero · 4 genere, solo sui loop di batteria (girando: drum &amp; bass, metà tempo, dub, shuffle; tutta a sinistra = spento): i colpi del loop vengono risuonati in un altro ordine · 5 crusher · 6 wobble (filtro che si apre e chiude a tempo: girando 1/4, 1/8, terzine, 1/16; tutta a sinistra = spento) · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera (sul singolo loop: volume del loop). Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Dopo un cambio di modo, di loop o di ambito una manopola non salta: agisce quando passa dal valore attuale (in alto compare fin dove girarla).</td></tr>
+        <tr><td>Manopole 1–8</td><td>Secondo il modo scelto col pulsante MANOPOLE in alto (o tasto M): <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, <b>Effetti DJ</b> = effetti su tutto il mix o sul loop selezionato: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco a tempo · 3 riverbero · 4 <b>batteria</b> (girando: drum &amp; bass, metà tempo, dub, shuffle, house, rock, hip hop, funk; tutta a sinistra = spento): se non hai suonato la batteria, un batterista crea un loop di batteria col kit scelto nel pannello suoni; se l'hai suonata, la rimette a tempo e aggiunge quello che manca (charleston, rullanti fantasma, rullata ogni 4 battute, piatto). STOP EFFETTI non la tocca · 5 crusher · 6 wobble (filtro che si apre e chiude a tempo: girando 1/4, 1/8, terzine, 1/16; tutta a sinistra = spento) · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera (sul singolo loop: volume del loop). Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Dopo un cambio di modo, di loop o di ambito una manopola non salta: agisce quando passa dal valore attuale (in alto compare fin dove girarla).</td></tr>
       </table>
       <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
       <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>C</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>N</kbd> registra esibizione · <kbd>B</kbd> drop / build-up · <kbd>Maiusc</kbd>+<kbd>1</kbd>–<kbd>8</kbd> seleziona il loop · <kbd>Spazio</kbd> play/stop · <kbd>Esc</kbd> spegne le note · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>

@@ -116,23 +116,13 @@ const join=it=>{const d=new Float32Array(it.len);let o=0;for(const ch of it.chun
  for(let b=0;b<60;b++){r.process([null,null,null],o,b*N,N,oR);if(b>=30)for(let k=0;k<N;k++){const x=d[(b*N+k)%len];side+=(o[k]-oR[k])**2;mid+=(o[k]+oR[k])**2;err=Math.max(err,Math.abs((o[k]+oR[k])/2-x*w))}}
  ok(side/mid>.1&&err<1e-4,'apertura stereo: sinistra e destra diverse (laterale/centro '+(side/mid).toFixed(2)+'), sommate tornano il loop ('+err.toExponential(1)+')');
  r.cmd({type:'reset'});r.process([null,null,null],o,0,N,oR);ok(r.loops[0].wid===.6,'reset conserva l\'apertura stereo')}
-// genere: il loop suona i suoi sedicesimi in un altro ordine, con il taglio poco prima della griglia
-{const r=new LoopCore(sr),step=500,len=8000,d=new Float32Array(len);for(let k=0;k<16;k++)d[k*step]=(k+1)/20;
+// swap (batteria): il loop suona un altro contenuto da un frame preciso, con dissolvenza; keep tiene l'originale per rimetterlo
+{const r=new LoopCore(sr),len=4000,d=new Float32Array(len).fill(.2),e=new Float32Array(2*len).fill(.6);
  r.cmd({type:'load',i:0,data:d,len,t0:0,vol:1,pan:0,fx:0});r.cmd({type:'gate',i:0,on:1,frame:0});
- const map=new Float32Array(32).fill(-1);for(let s=0;s<16;s++)map[2*s]=s;map[8]=8;map[16]=0;map[17]=12; // 4 ← 8; 8 ← 0 + 12
- r.cmd({type:'gen',i:0,map,step,off:0,len});
- const o=new Float32Array(N),out=[];const go=c=>{for(let b=0;b<c*len/N;b++){r.process([null,null,null],o,out.length,N);out.push(...o)}};go(2);
- const at=j=>+out[len+j].toFixed(3);
- ok(at(0)===.05&&at(4*step)===.45&&at(8*step)===.7&&at(2*step)===.15,'genere: sedicesimi riordinati, due insieme sullo stesso ('+[at(0),at(4*step),at(8*step),at(2*step)]+')');
- for(let s=0;s<16;s++)map[2*s+1]=-1,map[2*s]=s%2?s-1/3:s; // shuffle: i sedicesimi in levare un terzo in ritardo
- r.cmd({type:'gen',i:0,map,step,off:0,len});go(1);
- ok(at(len+step)===0&&at(len+step+167)===.1&&at(len+2*step)===.15,'genere: shuffle sposta i levare di un terzo di sedicesimo');
- r.cmd({type:'gen',i:0,map:null});go(1);let same=true;for(let j=0;j<len;j++)if(Math.abs(out[3*len+j]-d[j])>1e-6)same=false;
- ok(same&&r.loops[0].gv[1].c<0,'genere spento: il loop torna com\'era')}
-{const r=new LoopCore(sr),step=500,len=8000,d=new Float32Array(len);for(let j=0;j<len;j++)d[j]=.5*Math.sin(2*Math.PI*100*j/sr);
- r.cmd({type:'load',i:0,data:d,len,t0:300,vol:1,pan:0,fx:0});r.cmd({type:'gate',i:0,on:1,frame:0});
- const map=new Float32Array(32).fill(-1);[0,7,2,9,4,15,6,1,8,3,10,5,12,13,14,11].forEach((x,s)=>map[2*s]=x);
- r.cmd({type:'gen',i:0,map,step,off:7700,len});
- const o=new Float32Array(N);let prev=null,jump=0;
- for(let b=0;b<3*len/N;b++){r.process([null,null,null],o,b*N,N);for(let k=0;k<N;k++){if(prev!=null&&b*N>800)jump=Math.max(jump,Math.abs(o[k]-prev));prev=o[k]}}
- ok(jump<.1,'genere: niente clic ai salti fra un pezzo e l\'altro (salto massimo '+jump.toFixed(3)+', un seno salta di 0,039)')}
+ const o=new Float32Array(N),out=[];const go=c=>{const end=out.length+c;while(out.length<end){r.process([null,null,null],o,out.length,N);out.push(...o)}};
+ go(2048);r.cmd({type:'swap',i:0,data:e,keep:true,frame:4096});go(2048*3);
+ const xf=r.XF;let mono=true;for(let j=4096;j<4096+xf+N;j++)if(out[j+1]<out[j]-1e-6)mono=false;
+ ok(Math.abs(out[4000]-.2)<1e-6&&Math.abs(out[4096+xf+200]-.6)<1e-6&&mono&&r.loops[0].len===8000,'swap: dal frame giusto, dissolvenza senza salti, lunghezza nuova ('+r.loops[0].len+')');
+ r.cmd({type:'swap',i:0,data:null,frame:out.length});go(2048);
+ ok(r.loops[0].buf[5]===d[5]&&r.loops[0].len===4000&&!r.loops[0].orig&&Math.abs(out[out.length-1]-.2)<1e-6,'swap con data null: torna il loop di prima');
+ r.cmd({type:'swap',i:0,data:e});go(N);r.cmd({type:'undo',i:0});go(N);ok(!r.loops[0].orig,'swap senza keep e annulla: niente originale tenuto')}

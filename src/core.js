@@ -10,15 +10,15 @@ class LoopCore{
   this.dumps=[];this.DB=65536; // salvataggi in corso; campioni copiati al massimo per blocco audio
   this.CH=sr*2;this.UNDO=10; // la registrazione si accumula a pezzi da 2 s; strati di annulla tenuti per loop
   this.WD=Math.round(sr*.012);this.WM=1;while(this.WM<=this.WD)this.WM*=2;this.WM--; // apertura stereo: ritardo di 12 ms, maschera dell'anello
-  this.XF=Math.round(sr*.004);this.GP=Math.round(sr*.008); // genere: dissolvenza ai salti fra pezzi, anticipo del taglio
+  this.XF=Math.round(sr*.006); // dissolvenza quando un loop cambia contenuto (swap)
   this.loops=[];for(let i=0;i<this.NL;i++)this.loops.push(this.fresh());
  }
  // pan: -1 sinistra … 1 destra; fx: filtro sull'uscita del loop, -1 passa-basso … 0 niente … 1 passa-alto.
  // ps/fs sono i valori smussati, z1/z2 gli stati del filtro. ver cresce a ogni modifica del buffer, sv è la versione già salvata.
  // cp: copia per l'annulla della sovraincisione in corso, fatta a pezzi (vedi cpStep)
  // hp: passa-alto del mix automatico in Hz (0 = spento), wid: apertura stereo 0…1; hs/ws smussati, h1/h2 stati, wd anello del ritardo
- // gen: riordino dei colpi (vedi gread), gv: le due voci che leggono il buffer quando è acceso
- fresh(){return{gen:null,gv:[{c:-1,xo:-1,xn:0},{c:-1,xo:-1,xn:0}],buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,hp:0,hs:0,h1:0,h2:0,wid:0,ws:0,wd:null,wp:0,pg:null,ver:0,sv:0,rec:null,dub:null,cp:null,tails:[],pq:[],undo:[],redo:[]}}
+ // orig: il loop com'era prima di uno swap che lo tiene da parte; xb/xn: buffer di prima e dissolvenza in corso
+ fresh(){return{orig:null,xb:null,xn:0,buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,hp:0,hs:0,h1:0,h2:0,wid:0,ws:0,wd:null,wp:0,pg:null,ver:0,sv:0,rec:null,dub:null,cp:null,tails:[],pq:[],undo:[],redo:[]}}
  cmd(c){this.q.push(c)}
  mod(a,n){return((a%n)+n)%n}
  snap(L){return{buf:L.buf,len:L.len,t0:L.t0}}
@@ -46,7 +46,8 @@ class LoopCore{
    case "reset":this.loops=this.loops.map(o=>{const n=this.fresh();n.vol=o.vol;n.pan=n.ps=o.pan;n.fx=n.fs=o.fx;n.hp=n.hs=o.hp;n.wid=n.ws=o.wid;n.wd=o.wd;return n});break;
    // salvataggio sessione: "dump" manda copie dei loop cambiati dall'ultimo salvataggio (all: tutti; exp: per l'export,
    // non conta come salvato), copiate a pezzi da dumpStep; "load" rimette un loop salvato
-   case "dump":this.dumps.push({exp:!!c.exp,q:this.loops.map((o,j)=>o.buf&&(c.all||o.ver!==o.sv)?j:-1).filter(j=>j>=0),items:[],cur:null});break;
+   // only: solo quel loop; tag torna nel messaggio (la batteria lo usa per farsi dare la parte suonata)
+   case "dump":this.dumps.push({exp:!!c.exp,tag:c.tag||null,q:this.loops.map((o,j)=>o.buf&&(c.all||o.ver!==o.sv)&&(c.only==null||c.only===j)?j:-1).filter(j=>j>=0),items:[],cur:null});break;
    case "load":L.buf=new Float32Array(c.data);L.len=c.len;L.t0=c.t0;L.vol=c.vol;L.pan=L.ps=c.pan;L.fx=L.fs=c.fx;L.hp=L.hs=c.hp||0;this.setWid(L,c.wid||0);L.ws=L.wid;L.undo=[];L.redo=[];L.cp=null;L.g=0;L.gt=0;L.ver++;L.sv=L.ver;this.state(c.i);break;
    // ch: pezzi da CH campioni, creati man mano (niente copie quando la registrazione si allunga)
    case "rec":L.rec={bus:c.bus,start:c.start,comp:c.comp||0,have:Math.max(c.start,F0-this.RL+1),ch:[],end:null,len:0,t0:0};break;
@@ -67,29 +68,17 @@ class LoopCore{
    case "hp":L.hp=Math.max(0,Math.min(2000,c.v));break;
    case "wid":this.setWid(L,c.v);break;
    case "shift":for(const o of this.loops){o.t0+=c.delta;for(const s of o.undo)s.t0+=c.delta;for(const s of o.redo)s.t0+=c.delta}break;
-   // genere: map dice per ogni sedicesimo del loop quale sedicesimo suonare (due per pezzo, -1 = niente; frazioni = in
-   // ritardo), step è il sedicesimo in frame, off l'indice del buffer dove cade un 1 della griglia. map null = spento
-   case "gen":{const on=!!(c.map&&c.len===L.len&&L.buf),V=L.gv;
-    if(on&&!L.gen&&!V[0].xn&&!V[1].xn&&V[1].c<0)V[0].c=this.mod(F0-L.t0,L.len||1); // parte in continuità con quello che suona
-    L.gen=on?{map:c.map,n:c.map.length>>1,step:c.step,off:c.off,len:c.len}:null;break}
-   case "clear":L.gen=null;this.cpDone(L);if(L.buf)this.push(L,this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;L.ver++;this.state(c.i);break;
+   // batteria (app.js): il loop suona un altro contenuto da frame, con una dissolvenza di XF. keep tiene da parte quello
+   // di prima (orig) la prima volta; data null rimette orig. La lunghezza può cambiare (una batteria di 4 battute su un giro di 1)
+   case "swap":{if(!L.buf)break;this.cpDone(L);let nb=c.data,len=nb?nb.length:0;
+    if(nb){if(c.keep&&!L.orig)L.orig={buf:L.buf,len:L.len}}else if(L.orig){nb=L.orig.buf;len=L.orig.len;L.orig=null}else break;
+    L.xb=L.buf;L.xn=this.XF;L.buf=nb;L.len=len;L.ver++;this.state(c.i);break}
+   case "clear":L.orig=null;this.cpDone(L);if(L.buf)this.push(L,this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;L.ver++;this.state(c.i);break;
    case "undo":case "redo":{
-    this.cpDone(L);L.dub=null;L.tails=[];L.pq=[];const from=c.type==="undo"?L.undo:L.redo,to=c.type==="undo"?L.redo:L.undo;
+    this.cpDone(L);L.orig=null;L.dub=null;L.tails=[];L.pq=[];const from=c.type==="undo"?L.undo:L.redo,to=c.type==="undo"?L.redo:L.undo;
     if(from.length){to.push(this.snap(L));const s=from.pop();L.buf=s.buf;L.len=s.len;L.t0=s.t0;L.ver++}
     this.state(c.i);break}
   }}
- // Genere: il loop suona i suoi sedicesimi in un altro ordine (map). Il taglio cade GP frame prima della griglia, così
- // un colpo suonato appena in anticipo resta intero. Ogni voce segue dove sarebbe arrivata (c): a ogni salto dissolve
- // in XF frame dal vecchio punto al nuovo, quindi niente clic; GP > XF, quindi l'attacco del colpo arriva a dissolvenza finita.
- gread(L,p,b,len){const G=L.gen,V=L.gv;let ta=p,tb=-1;
-  if(G&&G.len===len){let r=(p-G.off+this.GP)%len;if(r<0)r+=len;
-   const s=Math.min(G.n-1,Math.floor(r/G.step)),o=r-s*G.step,a=G.map[2*s],c=G.map[2*s+1],z=G.off+o-this.GP;
-   ta=a<0?-1:this.mod(Math.round(z+a*G.step),len);tb=c<0?-1:this.mod(Math.round(z+c*G.step),len)}
-  return this.gvoice(V[0],ta,b,len)+this.gvoice(V[1],tb,b,len)}
- gvoice(v,t,b,len){if(t!==v.c){v.xo=v.c;v.xn=this.XF}
-  let x=t>=0?b[t]:0;
-  if(v.xn>0){const a=1-v.xn/this.XF,y=v.xo>=0?b[v.xo]:0;x=x*a+y*(1-a);if(v.xo>=0&&++v.xo===len)v.xo=0;v.xn--}
-  v.c=t<0?-1:t+1===len?0:t+1;return x}
  tail(src,F){return{bus:src.bus,comp:src.comp,from:F,until:F+this.TAIL}}
  // il campione j della registrazione va all'indice (start + j − comp − t0) mod len; quello che avanza oltre
  // un giro si ripiega sull'inizio. Il primo giro si copia con set (copia nativa), solo l'eccedenza si somma a mano:
@@ -102,7 +91,7 @@ class LoopCore{
     while(k<m1){const p=(p0+j0+k)%len,s=Math.min(m1-k,len-p);b.set(c.subarray(k,k+s),p);k+=s}
     for(let p=(p0+j0+k)%len;k<m;k++){b[p]+=c[k];if(++p===len)p=0}}}
   this.push(L,this.snap(L));
-  L.buf=b;L.len=len;L.t0=R.t0;L.rec=null;L.ver++;L.pq=[];L.tails=R.fill?[]:[this.tail(R,R.end)];
+  L.buf=b;L.len=len;L.t0=R.t0;L.rec=null;L.orig=null;L.ver++;L.pq=[];L.tails=R.fill?[]:[this.tail(R,R.end)];
   // il loop appena chiuso parte senza dissolvenza, in continuità con quello che hai appena suonato
   if(L.pg&&L.pg.on&&L.pg.frame<=R.end+256){L.gt=1;L.g=L.vol;L.pg=null}
   this.msgs.push({type:"done",i});this.state(i)}
@@ -140,21 +129,21 @@ class LoopCore{
    if(g>1e-5||target>0){let p=this.mod(F0-L.t0,len);
     const oL=outs?outs[i][0]:out,oR=outs?outs[i][1]:outR;
     const F=this.filt(L.fs),H=this.hpf(L.hs),W=oR&&L.wd&&L.ws>.005?L.ws:0,gl=oR?Math.min(1,1-L.ps):1,gr=Math.min(1,1+L.ps);
-    const V=L.gv,GN=!!L.gen||V[0].xn>0||V[1].xn>0||V[1].c>=0; // genere acceso, o spento da poco e ancora in dissolvenza
+    const XB=L.xn>0?L.xb:null,xl=XB?XB.length:0; // swap appena fatto: dissolvenza dal contenuto di prima
     if(!F){L.z1=0;L.z2=0}if(!H){L.h1=0;L.h2=0}
-    if(!F&&!H&&!W&&!GN){
+    if(!F&&!H&&!W&&!XB){
      for(let k=0;k<n;k++){g+=(target-g)*this.ramp;const s=b[p]*g;oL[k]+=s*gl;if(oR)oR[k]+=s*gr;if(++p===len)p=0}}
     else{let z1=L.z1,z2=L.z2,h1=L.h1,h2=L.h2,wp=L.wp;const kq=F&&F.k,wd=L.wd,M=this.WM,D=this.WD;
      // apertura stereo: a sinistra il suono più la sua copia ritardata, a destra meno la copia. Sommati tornano
      // il suono di partenza (in mono non cambia niente), nw tiene uguale il livello
      const nw=1/Math.sqrt(1+W*W),wl=gl*nw,wr=gr*nw;
-     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;let x=(GN?this.gread(L,p,b,len):b[p])*g;
+     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;let x=b[p];if(XB&&L.xn>0){const w=L.xn--/this.XF;x+=(XB[p%xl]-x)*w}x*=g;
       if(F){const v3=x-z2,v1=F.a1*z1+F.a2*v3,v2=z2+F.a2*z1+F.a3*v3;z1=2*v1-z1;z2=2*v2-z2;x=F.hp?x-kq*v1-v2:v2}
       if(H){const v3=x-h2,v1=H.a1*h1+H.a2*v3,v2=h2+H.a2*h1+H.a3*v3;h1=2*v1-h1;h2=2*v2-h2;x=x-H.k*v1-v2}
       if(W){const d=wd[(wp-D)&M]*W;wd[wp]=x;wp=(wp+1)&M;oL[k]+=(x+d)*wl;oR[k]+=(x-d)*wr}
       else{oL[k]+=x*gl;if(oR)oR[k]+=x*gr}
       if(++p===len)p=0}
-     L.z1=z1;L.z2=z2;L.h1=h1;L.h2=h2;L.wp=wp}}
+     L.z1=z1;L.z2=z2;L.h1=h1;L.h2=h2;L.wp=wp;if(L.xn<=0)L.xb=null}}
    L.g=g;
    if(L.dub){const x=ins[L.dub.bus];if(x){let p=this.mod(F0-L.dub.comp-L.t0,len);for(let k=0;k<n;k++){b[p]+=x[k];if(++p===len)p=0}L.ver++}
     if(peakNow)this.peaks(i)}
@@ -176,5 +165,5 @@ class LoopCore{
    const n=Math.min(budget,C.src.length-C.off);C.chunks.push(C.src.slice(C.off,C.off+n));C.off+=n;budget-=n;
    // se il loop cambia durante la copia, ver resta diverso da sv e il prossimo salvataggio lo ricopia
    if(C.off>=C.src.length){J.items.push({i:C.i,len:L.len,t0:L.t0,chunks:C.chunks});if(!J.exp)L.sv=C.ver;J.cur=null}}
-  if(!J.cur&&!J.q.length){this.dumps.shift();this.msgs.push({type:"dump",exp:J.exp,items:J.items,has:this.loops.map(o=>!!o.buf)})}}
+  if(!J.cur&&!J.q.length){this.dumps.shift();this.msgs.push({type:"dump",exp:J.exp,tag:J.tag,items:J.items,has:this.loops.map(o=>!!o.buf)})}}
 }

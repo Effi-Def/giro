@@ -55,12 +55,13 @@ function build(){
  [["#cut","cut"],["#rev","rev"],["#master","master"]].forEach(([s,k])=>{$(s).value=SET[k];$(s).oninput=e=>{SET[k]=+e.target.value;applyMix();saveSet()}});
  $("#exportBtn").onclick=()=>{closeSettings();exportWav()};$("#amixBtn").onclick=toggleAutoMix;
  $("#diagStart").onclick=()=>{diagOn=true;diagLines.clear();$("#diag").textContent="In ascolto: tocca i controlli dell'Axiom…"};
- $("#startBtn").onclick=start;
+ $("#startBtn").onclick=start;$("#awayBtn").onclick=tabTake;
 }
 function closeSettings(){$("#settings").hidden=true}
 function showDelay(){$("#delayVal").textContent=ctx?`${Math.round(audioDelayMs())} ms`:"—"}
 async function start(){if($("#gate").hidden)return;$("#gate").hidden=true;
  try{await initAudio();await ctx.resume()}catch(err){flashHint("L'audio non è partito: "+err.message)}
+ tabTake(); // le altre schede di Giro vanno in pausa
  render()}
 
 let hintOverride="",hintTimer=0;

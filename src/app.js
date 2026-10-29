@@ -71,12 +71,12 @@ function clipCurve(){const n=4096,c=new Float32Array(n);for(let j=0;j<n;j++){con
 function satCurve(k){const n=2048,c=new Float32Array(n);for(let j=0;j<n;j++){const u=(j/(n-1)*2-1)*2;c[j]=Math.tanh(k*u)/k}return c}
 
 // ---------- Effetti DJ: su tutto il mix o sul singolo loop ----------
-// 1 filtro · 2 eco · 3 riverbero · 4 genere (riordino dei colpi della batteria, vedi genSync) · 5 crusher · 6 wobble · 7 roll · 8 volume (tastiera sul mix, del loop sul loop).
+// 1 filtro · 2 eco · 3 riverbero · 4 batteria (batterista e correttore, vedi drumSync) · 5 crusher · 6 wobble · 7 roll · 8 volume (tastiera sul mix, del loop sul loop).
 // Tutti nodi nativi del browser (leggeri). A manopole spente (filtro al centro) il suono passa com'era.
 // Ambito "mix": la catena DJ fra masterIn e il filtro generale. Ambito "loop": ogni loop esce dal worklet su
 // un'uscita sua, che passa per una catena tutta sua, creata al primo effetto. Cambiando loop selezionato,
 // quello di prima tiene i suoi effetti e le manopole passano al nuovo.
-const DJ_NAMES=["FILTRO","ECO","RIVERBERO","GENERE","CRUSHER","WOBBLE","ROLL","TASTIERA"];
+const DJ_NAMES=["FILTRO","ECO","RIVERBERO","BATTERIA","CRUSHER","WOBBLE","ROLL","TASTIERA"];
 const DJV=[0,0,0,0,0,0,0,1]; // valori del mix: filtro -1…1 (0 = spento), gli altri 0…1; la tastiera parte al massimo
 let DJ=null,fxScope="mix",revL=null;
 const LDJ=Array(8).fill(null),loopOut=[],loopTo=[]; // catene dei singoli loop (null = nessun effetto), uscite dei loop e dove vanno
@@ -156,7 +156,7 @@ function djApply(D,i){const t=ctx.currentTime,a=D.v[i];
    D.lp.Q.setTargetAtTime(a<0?.7+u*1.3:.7,t,.05);D.hp.Q.setTargetAtTime(a>0?.7+u*1.3:.7,t,.05);break}
   case 1:D.eWet.gain.setTargetAtTime(a*.55,t,.03);D.eFb.gain.setTargetAtTime(a>0?.15+a*.55:0,t,.03);D.eDel.delayTime.setTargetAtTime(Math.min(2.9,.75*beatS()),t,.05);break;
   case 2:if(D===DJ)applyMix();else D.rev.gain.setTargetAtTime(a*.8,t,.03);break;
-  case 3:genSync();break;
+  case 3:if(!genOf(a))batDrop(D===DJ?"mix":"loop");drumSync();break;
   case 4:D.crush.curve=crushCurve(a);break;
   case 5:{const k=a<.1?0:[1,2,3,4][Math.min(3,Math.floor((a-.1)/.9*4))];if(k!==D.wbK){D.wbK=k;djRetimeOne(D)}break}
   case 6:djRoll(D,a<.1?0:[1,2,4,8][Math.min(3,Math.floor((a-.1)/.9*4))]);break}}
@@ -178,15 +178,18 @@ function djText(i){const V=djView(),a=V.v[i];
  if(i===0)return a===0?"spento":a<0?"più scuro "+Math.round(-a*100)+"%":"più leggero "+Math.round(a*100)+"%";
  if(i===6)return V.rollK?"ripete "+ROLL_NAMES[V.rollK]:(G.base&&G.running?"spento":"serve un loop che suona");
  if(i===5)return !V.wbK?"spento":G.base?"wobble "+WB_NAMES[V.wbK]:"serve un loop che suona";
- if(i===3){if(a<.1)return "spento";const n=GEN_NAMES[genOf(a)-1];if(!G.base)return n+" · serve un loop che suona";
-  return fxScope==="loop"?(isDrum(G.sel)?n:n+" · solo sui loop di batteria"):G.loops.some((L,j)=>isDrum(j))?n:n+" · serve un loop di batteria"}
+ if(i===3){const g=genOf(a);if(!g)return "spento";const n=DRUMS[g-1].name;if(!G.base)return n+" · prima registra un giro";
+  const fix=L=>L.mx?.h?.length?n+" · corregge la tua batteria":n+" · batteria senza note: suonala di nuovo";
+  if(fxScope==="loop"){const L=G.loops[G.sel];return L.bat?n+" · batterista":isDrum(G.sel)?fix(L):n+" · solo sui loop di batteria"}
+  const u=G.loops.find((L,j)=>isDrum(j)&&!L.bat),b=G.loops.findIndex(L=>L.has&&L.bat);
+  return u?fix(u):b>=0?n+` · batterista nel loop ${b+1}`:n+" · batterista"}
  return a<.02&&i!==7?"spento":Math.round(a*100)+"%"}
 function setFxScope(m){fxScope=m;
  flashHint(m==="loop"?`Effetti DJ sul <b>loop selezionato</b> (ora il ${G.sel+1}). Cambiando loop, quello di prima tiene i suoi effetti.`:"Effetti DJ su <b>tutto il mix</b>.");render()}
 const toggleFxScope=()=>setFxScope(fxScope==="mix"?"loop":"mix");
 // spegne tutti gli effetti, sul mix e su ogni loop (i volumi restano com'erano)
-function stopAllFx(){for(let i=0;i<7;i++)DJV[i]=0;
- if(DJ){for(let i=0;i<7;i++)djApply(DJ,i);for(let i=0;i<LDJ.length;i++)dropLoopDJ(i);pumpAutoOff();genSync()}
+function stopAllFx(){for(let i=0;i<7;i++)if(i!==3)DJV[i]=0; // la batteria (4) non è un effetto: resta
+ if(DJ){for(let i=0;i<7;i++)if(i!==3)djApply(DJ,i);for(let i=0;i<LDJ.length;i++)dropLoopDJ(i);pumpAutoOff()}
  flashHint("<b>Effetti spenti</b> su tutto il mix e su tutti i loop.");render()}
 // Tempo degli eventi. ctx.currentTime avanza a scatti: un blocco da 128 campioni alla volta, a raffiche lunghe quanto
 // il buffer della scheda (su questo PC 10 ms, scarto misurato 13,8 ms). Leggerlo quando arriva una nota dava fino a
@@ -300,6 +303,7 @@ function close(i){const L=G.loops[i],f=nowF();
  if(end>f+sr*.02)L.state="closing";else{if(L.q)renderRec(i);L.state="play";rotateBus()}}
 
 function startDub(i){const L=G.loops[i];if(!G.running)playAll();
+ if(L.fixed){send({type:"swap",i,data:null});L.fixed=false;L.dk="";L.org=null} // si sovraincide sulla batteria suonata, poi si corregge di nuovo
  G.loops.forEach((o,j)=>{if(j!==i&&o.state==="dub")endDub(j)}); // una sovraincisione alla volta
  if(L.muted){L.muted=false;L.pend=null;send({type:"gate",i,on:1,frame:nowF()})}
  const nb=freshBuf(L.len);send({type:"dub",i,bus:G.cur,comp:latencyFrames(),buf:nb},[nb.buffer]);L.state="dub";L.q=SET.quant;G.dubTake=[];render()}
@@ -415,7 +419,8 @@ function undoSel(redo){if(!ready)return;const i=G.sel,L=G.loops[i];
  if(L.state==="closing")return;
  if(L.state==="dub")L.state="play";
  if(redo?!L.redo:!L.undo){flashHint(redo?"Niente da ripetere.":"Niente da annullare sul loop "+(i+1)+".");return}
- send({type:redo?"redo":"undo",i});flashHint((redo?"Ripristinato":"Annullato")+` l'ultimo strato del loop ${i+1}.`)}
+ send({type:redo?"redo":"undo",i});if(L.fixed){L.fixed=false;L.dk="";L.org=null} // il core ha lasciato la versione corretta: si rifà
+ flashHint((redo?"Ripristinato":"Annullato")+` l'ultimo strato del loop ${i+1}.`)}
 
 // ---------- Sessione: salvataggio automatico dei loop in IndexedDB, ripresa all'apertura ----------
 // Si salva un attimo dopo l'ultima modifica (loop chiuso, sovraincisione, annulla, cancella, volume/pan/filtro).
@@ -454,7 +459,7 @@ function telConnect(){let es;try{es=new EventSource(TEL+"/events?who=giro")}catc
 // QR per aprire il telecomando sul telefono: l'immagine la fa il ponte
 function telQR(){if(!tel.on)return;$("#telQRimg").src=TEL+"/qr.svg?"+Date.now();$("#telAddr").textContent="http://"+tel.addr;$("#telQR").hidden=false}
 addEventListener("pagehide",()=>{if(tel.on)navigator.sendBeacon(TEL+"/bye","{}")});
-function telCmd(c){
+function telCmd(c){if(away)return;
  if(c.c==="perf")perfToggle();
  else if(c.c==="fx"&&(c.v==="mix"||c.v==="loop")){if(fxScope!==c.v)setFxScope(c.v)}
  else if(c.c==="fxstop")stopAllFx();
@@ -493,11 +498,12 @@ function doExport(items){
  flashHint(`<b>${name}</b> scaricato: ${(max/sr).toFixed(1)} s, un giro dei loop.`)}
 function onDump(m){
  const items=m.items.map(it=>{const data=new Float32Array(it.len);let o=0;for(const ch of it.chunks){data.set(ch,o);o+=ch.length}return{i:it.i,len:it.len,t0:it.t0,data}});
+ if(m.tag==="fix")return onFixDump(items);
  if(m.exp)return doExport(items);
  if(!m.has.some(Boolean)){if(!G.loops.some(L=>L.state==="rec"||L.state==="closing")&&!anyHas())idb("readwrite",s=>{s.clear()}).catch(()=>{});return}
  if(!G.base)return;
  // posizione e lunghezza dallo stato di Giro (si spostano insieme a G.origin), i campioni solo dei loop cambiati
- const loops=[];G.loops.forEach((L,i)=>{if(m.has[i]&&L.has)loops.push({i,len:L.len,rel:L.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound,mx:L.mx,ar:L.ar,pm:L.pm})});
+ const loops=[];G.loops.forEach((L,i)=>{if(m.has[i]&&L.has)loops.push({i,len:L.len,rel:L.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound,mx:L.mx,ar:L.ar,pm:L.pm,bat:L.bat||0})});
  const rec={v:2,sr,base:G.base,beats:G.beats,loops};
  idb("readwrite",s=>{s.put(rec,"s");for(const it of items)s.put(it.data,"L"+it.i);m.has.forEach((h,i)=>{if(!h)s.delete("L"+i)})}).catch(()=>{})}
 async function restoreSession(){
@@ -510,7 +516,7 @@ async function restoreSession(){
  G.base=rec.base;G.beats=rec.beats;G.origin=nowF();G.running=false;
  rec.loops.forEach((s,k)=>{const L=G.loops[s.i],data=datas[k];if(!L||!data||data.length!==s.len)return;
   // mix automatico: le sessioni di prima non hanno le note (mx) e restano come erano; il loro pan conta come girato a mano
-  Object.assign(L,{vol:s.vol,pan:s.pan,fx:s.fx,sound:s.sound,mx:s.mx||null,ar:s.ar??null,pm:s.pm??s.pan!==0});
+  Object.assign(L,{vol:s.vol,pan:s.pan,fx:s.fx,sound:s.sound,mx:s.mx||null,ar:s.ar??null,pm:s.pm??s.pan!==0,bat:s.bat||0,fixed:false,dk:""});
   send({type:"load",i:s.i,data,len:s.len,t0:G.origin+s.rel,vol:s.vol,pan:s.pan,fx:s.fx},[data.buffer])});
  if(rec.v===1)send({type:"dump",all:true}); // riscrive subito nel formato nuovo
  setTimeout(()=>{restoring=false},500);
@@ -529,7 +535,7 @@ function onCoreMsg(m){
 
 let perfLast=-1;
 function tick(){if(!ready)return;const f=nowF();let ch=false;
- rollTick();routeLoops();autoMix();genSync();if(G.dropAt&&f>=G.dropAt){G.dropAt=0;bld=null;flashHint("<b>DROP!</b>")}
+ rollTick();routeLoops();autoMix();drumSync();if(G.dropAt&&f>=G.dropAt){G.dropAt=0;bld=null;flashHint("<b>DROP!</b>")}
  if(perf&&Math.floor(perfSecs())!==perfLast){perfLast=Math.floor(perfSecs());render()}
  if(G.stopAt&&f>=G.stopAt){stopAll();ch=true}
  // un loop cancellato perde anche i suoi effetti
@@ -553,7 +559,7 @@ const ROLE_CAT={Tastiere:"acc",Chitarre:"acc",Bassi:"bas",Atmosfere:"tap",Synth:
 function soundRole(id,kick){const s=SOUNDS.find(x=>x.id===id);if(!s)return null;if(s.drum)return kick?"rit":"per";
  return ROLE_ID[s.id]||(s.cat==="Orchestra"&&s.loop?"tap":ROLE_CAT[s.cat])||null}
 // mx: note suonate nel loop per suono (w), nota più bassa che si sente (lo), se la batteria ha cassa o tom basso (kick)
-// h: colpi di batteria [indice nel buffer, k cassa · s rullante, rim o clap · h il resto, quantizzazione], per il genere (genMap)
+// h: colpi di batteria suonati, per il correttore (hitNote, fixRender)
 const freshMx=()=>({w:{},lo:null,kick:false,h:[]});
 function mxNote(L,s,note){const M=L.mx||(L.mx=freshMx());M.w[s.id]=(M.w[s.id]||0)+1;
  if(s.drum){if(note%12===0||note%12===5)M.kick=true}else{const n=note+(s.tr||0);if(M.lo==null||n<M.lo)M.lo=n}}
@@ -576,47 +582,128 @@ function autoMix(){
   if(t.r&&ROLES[t.r].pan&&G.loops.some((o,j)=>j!==i&&o.has)){const S=G.loops.reduce((a,o,j)=>a+(j!==i&&o.has?o.pan:0),0);
    x=(S>.01?-1:S<-.01?1:t.r==="mel"?1:-1)*ROLES[t.r].pan}
   if(x!==L.pan){L.pan=x;send({type:"pan",i,v:x});saveSoon()}})}
-// ---------- Genere (manopola 4 degli effetti DJ) ----------
-// Cambia il ritmo dei loop di batteria: il core suona i loop a pezzi da un sedicesimo in un altro ordine (gread in core.js),
-// presi dal loop stesso, quindi i suoni restano quelli suonati. Dove stanno cassa e rullante lo dicono le note suonate
-// (mx.h); senza note (sessioni di prima) si presume un ritmo classico: cassa su 1 e 3, rullante su 2 e 4.
-// Schemi su una battuta di sedicesimi: K cassa, S rullante, X cassa e rullante insieme, - il pezzo che c'era (se lì
-// c'erano cassa o rullante, il pezzo senza più vicino nella stessa posizione del battito). Shuffle: i levare un terzo in ritardo.
-const GEN_NAMES=["drum & bass","metà tempo","dub","shuffle"];
-const GEN_T=["K---S-----K-S---","K-------S-------","--------X-------"],SWING=1/3;
-const genOf=a=>a<.1?0:1+Math.min(3,Math.floor((a-.1)/.9*4));
+// ---------- Batteria (manopola 4 degli effetti DJ) ----------
+// Chi suona non sa fare bene le parti di batteria (riordinare i colpi suonati, la versione di prima, non bastava).
+// Girando la manopola si sceglie un genere e:
+// - BATTERISTA: se nel giro non c'è una batteria, crea un loop di batteria nel primo posto libero, col kit scelto nel
+//   pannello suoni (l'ultimo kit scelto, se adesso è scelto uno strumento); cambiando kit o genere si rifà;
+// - CORRETTORE: sopra le batterie suonate (quelle con le note in mx.h) lo schema del genere aggiunge quello che manca:
+//   gli strumenti non suonati (cassa, rullante, charleston), i rullanti fantasma, la rullata alla quarta battuta e il
+//   piatto all'inizio. L'audio suonato resta com'è (una versione che lo risuonava dalle note a sedicesimi rompeva il
+//   groove di chi suona in terzine), e se chi suona mette i levare in terzina, anche le aggiunte vanno in terzina.
+//   L'audio arriva dal core (dump con only e tag "fix", L.org); la versione suonata resta da parte (swap con keep).
+// Tutta a sinistra: il batterista se ne va, le batterie suonate tornano come erano. STOP EFFETTI non la tocca.
+// Schemi scritti a mano, frasi di 4 battute di sedicesimi: A la battuta base (1 e 3), B la variazione (2), F la rullata (4);
+// in B e F «-» lascia quello di A. Cifre = forza, X = piena. Righe (la mappa dei kit, da Do): K cassa, R rim, S rullante,
+// C clap, L/M/A tom basso, medio, alto, H charleston, T charleston corto, O aperto, Y piatto.
+// sw: ritardo in sedicesimi [degli ottavi in levare, dei sedicesimi in levare] · fast: il d&b sotto i 110 bpm va a tempo
+// doppio (una battuta ogni 2 battiti: a 85–100 diventa 170–200) · crash: piatto all'inizio della frase
+const DRUM_ROW={K:0,R:1,S:2,C:3,L:5,H:6,M:7,T:8,A:9,O:10,Y:11};
+const DRUMS=[
+ {name:"drum & bass",fast:1,crash:1,A:{K:"X.........X.....",S:"....X..2.2..X..3",H:"7.5.7.5.7.5.7.5."},
+  B:{K:"X.X.......X.....",S:"....X..2....X.2."},F:{K:"----------X-....",S:"------------X7X9",H:"------------...."}},
+ {name:"metà tempo",crash:1,A:{K:"X.........X.....",S:"........X.......",H:"7.5.7.5.7.5.7.5."},
+  B:{K:"X.....5...X.....",H:"7.5.7.5.7.5.6565"},F:{K:"--------X.....X.",S:"--------------4X",H:"--------75757878"}},
+ {name:"dub",echo:1,sw:[.4,0],A:{K:"........X.......",R:"........X.......",H:"6.4.6.4.6.4.6.4."},
+  B:{R:"........X.....4.",H:"6.4.6.4.6.4.6.5."},F:{R:"------------X...",M:"-------------6..",L:"--------------7.",H:"------------...."}},
+ {name:"shuffle",sw:[.667,0],A:{K:"X.......X.....4.",S:"....X.......X...",H:"7.5.7.5.7.5.7.5."},
+  B:{K:"X.....4.X.......",S:"....X.......X.3."},F:{S:"------------X...",M:"--------------7.",H:"------------...."}},
+ {name:"house",crash:1,A:{K:"X...X...X...X...",C:"....X.......X...",O:"..7...7...7...7.",H:"4...4...4...4..."},
+  B:{C:"....X.......X..4"},F:{S:"------------5678"}},
+ {name:"rock",crash:1,A:{K:"X.......X.X.....",S:"....X.......X...",H:"8.5.8.5.8.5.8.5."},
+  B:{K:"X.....X.X......."},F:{K:"--------X.......",S:"--------87......",A:"----------77....",M:"------------77..",L:"--------------88",H:"--------........"}},
+ {name:"hip hop",sw:[0,.33],A:{K:"X......X..X.....",S:"....X.......X...",H:"7.5.7.5.7.5.7.5."},
+  B:{K:"X.X....X...X....",H:"7.5.7.5.7.5.7...",O:"..............6."},F:{K:"--------X...X.X.",S:"------------X..4"}},
+ {name:"funk",crash:1,sw:[0,.15],A:{K:"X.X.......X..X..",S:"....X..3.3..X..3",H:"8484848484848484"},
+  B:{K:"X.X...X...X.....",S:"....X..3.3..X.3."},F:{K:"------------X...",S:"------------X7X8",H:"------------...."}}];
+const DUB=3; // il genere dub ha la sua eco (GE)
+const genOf=a=>a<.08?0:1+Math.min(DRUMS.length-1,Math.floor((a-.08)/.92*DRUMS.length));
 const isDrum=i=>{const L=G.loops[i];return L.has&&!!SOUNDS[L.sound]?.drum};
-// genere del loop i: quello del suo loop (effetti sul loop) se acceso, se no quello del mix; solo loop di batteria
-function loopGen(i){if(!G.base||!isDrum(i))return 0;const D=LDJ[i];return(D&&genOf(D.v[3]))||genOf(DJV[3])}
-function hitNote(L,rec,note){const M=L.mx||(L.mx=freshMx()),c=note%12,f=nowF()-(rec&&L.first?0:latencyFrames());if(!M.h)M.h=[];
- if(M.h.length<4000)M.h.push([rec?f-L.start:((f-L.t0)%L.len+L.len)%L.len,c===0?"k":c<=4?"s":"h",L.q||4])}
-function genMap(i,g){const L=G.loops[i],step=G.base/(G.beats*4),n=Math.round(L.len/step),off=((G.origin-L.t0)%L.len+L.len)%L.len;
- const map=new Float32Array(2*n).fill(-1);
- if(g===4){for(let s=0;s<n;s++)map[2*s]=s%2?s-SWING:s;return map}
- const K=new Uint8Array(n),S=new Uint8Array(n),H=L.mx?.h||[];
- // il colpo va dove l'ha messo la quantizzazione (a 1/8 sull'ottavo più vicino), se no sul sedicesimo più vicino
- for(const [p,c,q] of H){const gq=step*4/(q||4),s=Math.round(Math.round((((p-off)%L.len+L.len)%L.len)/gq)*gq/step)%n;if(c==="k")K[s]=1;else if(c==="s")S[s]=1}
- if(!H.length)for(let s=0;s<n;s++){K[s]=s%8===0;S[s]=s%8===4}
- // il pezzo più vicino a s che va bene (prima nella stessa battuta), -1 se non c'è
- const near=(s,ok)=>{let best=-1,bd=Infinity;for(let j=0;j<n;j++)if(ok(j)){const d=Math.abs(j-s)+((j>>4)!==(s>>4)?n:0);if(d<bd){bd=d;best=j}}return best};
- const kick=s=>{const j=near(s,j=>K[j]&&!S[j]);return j>=0?j:near(s,j=>K[j])},snr=s=>{const j=near(s,j=>S[j]&&!K[j]);return j>=0?j:near(s,j=>S[j])};
- const keep=s=>{if(!K[s]&&!S[s])return s;const free=j=>!K[j]&&!S[j];for(const m of[4,2,1]){const j=near(s,j=>free(j)&&j%m===s%m);if(j>=0)return j}return -1};
- const T=GEN_T[g-1];
- for(let s=0;s<n;s++){const t=T[s%16];let a=-1,b=-1;
-  if(t==="K")a=kick(s);else if(t==="S")a=snr(s);
-  else if(t==="X"){a=near(s,j=>K[j]&&S[j]);if(a<0){a=kick(s);b=snr(s);if(a<0){a=b;b=-1}}}
-  if(a<0)a=keep(s);
-  map[2*s]=a;map[2*s+1]=b}
- return map}
-// gira in tick: rifà lo schema di un loop quando cambiano genere, loop, tempo o colpi, e lo manda al core dal prossimo sedicesimo
-const geOn=[];
-function genSync(){if(!ready)return;
- G.loops.forEach((L,i)=>{const g=loopGen(i),dub=g===3&&!!loopOut[i];
-  if(dub!==!!geOn[i]){geOn[i]=dub;if(dub)loopOut[i].connect(GE.in);else loopOut[i].disconnect(GE.in)}
-  const key=g?[g,L.len,L.t0-G.origin,G.beats,L.mx?.h?.length||0].join():"";if(key===(L.gk||""))return;L.gk=key;
-  if(!g){send({type:"gen",i,map:null});return}
-  const step=G.base/(G.beats*4),f=nowF(),at=G.origin+Math.ceil((f+sr*.02-G.origin)/step)*step;
-  send({type:"gen",i,map:genMap(i,g),step,off:((G.origin-L.t0)%L.len+L.len)%L.len,len:L.len,frame:Math.round(at-sr*.008)})})}
+// classe di un colpo dalla nota: k cassa, s rullante, rim o clap, t tom, h charleston, y piatto
+const drumCls=n=>{const c=((n%12)+12)%12;return c===0?"k":c<=4?"s":c===11?"y":c===6||c===8||c===10?"h":"t"};
+let lastKit=-1;
+function drumKit(){if(SOUNDS[SET.sound]?.drum)return SET.sound;if(SOUNDS[lastKit]?.drum)return lastKit;return Math.max(0,SOUNDS.findIndex(s=>s.id==="batteria"))}
+// colpi di batteria suonati: [indice nel buffer, classe, quantizzazione, nota, forza]
+function hitNote(L,rec,note,vel){const M=L.mx||(L.mx=freshMx()),f=nowF()-(rec&&L.first?0:latencyFrames());if(!M.h)M.h=[];
+ if(M.h.length<4000)M.h.push([rec?f-L.start:((f-L.t0)%L.len+L.len)%L.len,drumCls(note)[0],L.q||4,note,vel])}
+// passo (un sedicesimo dello schema) e battuta in frame
+function drumGeo(D){const b=G.base/G.beats,spb=D.fast&&bpm()<110?8:4;return{step:b/spb,bar:16*b/spb}}
+// colpi della battuta k della frase: {r riga, j sedicesimo, v forza}; fr = da dove comincia la rullata (16 = niente)
+function barNotes(D,k){const rows=Object.assign({},D.A),over=k===1?D.B:k===3?D.F:null;let fr=16;
+ if(over)for(const r in over){const a=rows[r]||"................";rows[r]=[...over[r]].map((c,j)=>c==="-"?a[j]:c).join("");
+  if(k===3){const j=[...over[r]].findIndex(c=>c!=="-");if(j>=0&&j<fr)fr=j}}
+ const out=[];for(const r in rows)[...rows[r]].forEach((c,j)=>{if(c!==".")out.push({r,j,v:c==="X"?1:+c/9})});
+ if(k===0&&D.crash)out.push({r:"Y",j:0,v:.75});
+ return{out,fr}}
+const swingAt=(D,j)=>j+(j%4===2?(D.sw?.[0]||0):j%2?(D.sw?.[1]||0):0);
+// mette i colpi nel buffer (posizione t in frame dalla griglia, off = indice del buffer dove cade l'1); l'aperto si chiude
+// col charleston chiuso dopo, come suonando dal vivo (voice in sampler.js)
+function drumMix(si,notes,len,off){const data=new Float32Array(len),fd=Math.round(sr*.01);notes.sort((a,b)=>a.t-b.t);
+ notes.forEach((n,x)=>{let seg=renderNote(si,n.note,n.v,sr*.1);if(!seg)return;
+  if(n.note%12===10){const nx=notes.find((m,y)=>y>x&&m.t>n.t&&(m.note%12===6||m.note%12===8));
+   if(nx){const cut=Math.round(nx.t-n.t);if(cut<seg.length){seg=seg.slice(0,Math.min(seg.length,cut+fd));for(let k=0;cut+k<seg.length;k++)seg[cut+k]*=1-k/fd}}}
+  let p=((Math.round(n.t+off))%len+len)%len;for(let k=0;k<seg.length;k++){data[p]+=seg[k];if(++p===len)p=0}});
+ return data}
+// batterista: la frase intera del genere, lunga 4 battute (o più giri, se il giro è più lungo), dall'1 della griglia
+function batRender(g,si){const D=DRUMS[g-1],{step,bar}=drumGeo(D),len=G.base*Math.max(1,Math.ceil(4*bar/G.base-1e-9)),notes=[];
+ for(let j=0;j*bar<len-1;j++){const{out}=barNotes(D,j%4);for(const n of out)notes.push({t:j*bar+swingAt(D,n.j)*step,note:48+DRUM_ROW[n.r],v:n.v})}
+ return drumMix(si,notes,Math.round(len),0)}
+// correttore: la batteria suonata (org, il suo audio) ripetuta fino a 4 battute, più quello che manca. Nella rullata
+// la parte suonata tace (con 5 ms di dissolvenza), come farebbe un batterista
+function fixRender(i,g,org){const L=G.loops[i],D=DRUMS[g-1],{step,bar}=drumGeo(D),L0=org.length,beat=G.base/G.beats;
+ const off=((G.origin-L.t0)%L0+L0)%L0,len=L0*Math.max(1,Math.ceil(4*bar/L0-1e-9)),U=[],has=new Set();
+ for(const h of L.mx.h){const note=h[3]??(h[1]==="k"?48:h[1]==="s"?50:54);U.push({t:((h[0]-off)%L0+L0)%L0,note});has.add(drumCls(note))}
+ // terzine: più colpi a 1/3 e 2/3 del battito che a 1/4, 1/2, 3/4. Allora i sedicesimi dello schema vanno a 0, 1/3, 2/3
+ // del battito (l'ultimo sedicesimo del battito si salta)
+ let tri=0,str=0;for(const u of U){const f=(u.t/beat)%1;if(Math.min(Math.abs(f-1/3),Math.abs(f-2/3))<.07)tri++;else if([.25,.5,.75].some(x=>Math.abs(f-x)<.07))str++}
+ const trip=tri>=2&&tri>str,pos=j=>{if(!trip)return swingAt(D,j);const k=j%4;return k===3?null:j-k+[0,4/3,8/3][k]};
+ const data=new Float32Array(len);for(let p=0;p<len;p++)data[p]=org[p%L0];
+ const add=[],fd=Math.round(sr*.005),at=t=>((Math.round(t+off)%len)+len)%len;
+ for(let j=0;j*bar<len-1;j++){const{out,fr}=barNotes(D,j%4),b0=j*bar,fill=b0+fr*step-step/2;
+  if(fr<16){const a=Math.round(fill),z=Math.round(b0+bar);for(let t=a-fd;t<z;t++){const w=t<a?(a-t)/fd:t>=z-fd?(t-z+fd+1)/fd:0;data[at(t)]*=w}}
+  for(const n of out){const sj=pos(n.j);if(sj==null)continue;const t=b0+sj*step,c=drumCls(DRUM_ROW[n.r]);
+   const ghost=c==="s"&&n.v<.45&&!U.some(u=>drumCls(u.note)==="s"&&Math.abs((u.t%L0)-(t%L0))<step*.75);
+   if(t>=fill||!has.has(c)||ghost||c==="y")add.push({t,note:48+DRUM_ROW[n.r],v:n.v})}}
+ const extra=drumMix(L.sound,add,len,off);for(let p=0;p<len;p++)data[p]+=extra[p];
+ return data}
+// la batteria nuova entra sull'1 della prossima battuta (4 battiti), con la dissolvenza dello swap finita prima
+function drumAt(){const bar=4*G.base/G.beats,f=nowF();return Math.round(G.origin+Math.ceil((f+sr*.05-G.origin)/bar)*bar-sr*.008)}
+const geOn=[];let batWant=null,drumMsg=0;
+function setGE(i,on){on=on&&!!loopOut[i];if(on===!!geOn[i])return;geOn[i]=on;if(on)loopOut[i].connect(GE.in);else loopOut[i].disconnect(GE.in)}
+function batMake(j,g){const L=G.loops[j],si=drumKit(),data=batRender(g,si),len=data.length;
+ Object.assign(L,{state:"play",has:true,muted:false,pend:null,dropped:false,sound:si,len,t0:G.origin,first:false,peaks:null,
+  mx:{w:{[SOUNDS[si].id]:1},lo:null,kick:true,h:[]},ar:null,pm:false,pan:0,shp:0,swid:0,bat:g,dk:[g,si,G.base,G.beats,bpm()<110].join(),fixed:false});
+ send({type:"load",i:j,data,len,t0:G.origin,vol:L.vol,pan:0,fx:L.fx},[data.buffer]);
+ send({type:"gate",i:j,on:G.running?1:0,frame:G.running?drumAt()+Math.round(sr*.008):nowF()});
+ flashHint(`Batterista: <b>${DRUMS[g-1].name}</b> nel loop ${j+1}, kit ${SOUNDS[si].name}. Manopola 4 tutta a sinistra per toglierlo.`);render()}
+// manopola 4 tutta a sinistra: il batterista se ne va (le batterie suonate tornano come erano da drumSync)
+function batDrop(scope){G.loops.forEach((L,j)=>{if(!L.bat||!L.has)return;const own=LDJ[j]&&genOf(LDJ[j].v[3]);
+ if(scope==="mix"?!own:j===G.sel&&!genOf(DJV[3])){clearLoop(j);L.bat=0;flashHint(`Batterista tolto dal loop ${j+1}. ◀ lo riporta indietro.`)}})}
+// gira in tick: crea il batterista, rifà le batterie quando cambiano genere, kit, tempo o note (aspetta che la manopola
+// si fermi: girandola si attraversano gli altri generi)
+function drumSync(){if(!ready)return;const gm=G.base?genOf(DJV[3]):0,now=performance.now();
+ const want=i=>{const D=LDJ[i];return G.base?(D&&genOf(D.v[3]))||gm:0},calm=(o,key)=>{if(!o.dw||o.dw.key!==key){o.dw={key,t:now};return false}return now-o.dw.t>150};
+ if(gm&&!G.loops.some((L,i)=>isDrum(i)||L.state==="rec"||L.state==="closing")){const w=batWant||(batWant={});
+  if(calm(w,gm)){const j=G.loops.findIndex(L=>L.state==="empty"),si=drumKit();
+   if(j<0){if(now-drumMsg>4000){drumMsg=now;flashHint("Batteria: nessun loop libero. Cancella un loop per far entrare il batterista.")}}
+   else if(!BUF[SOUNDS[si].id])loadSound(si);else{batWant=null;batMake(j,gm)}}}else batWant=null;
+ G.loops.forEach((L,i)=>{
+  if(!L.has){L.bat=0;L.fixed=false;L.dk="";L.org=null;L.orgReq=false;setGE(i,false);return}
+  if(!isDrum(i)){setGE(i,false);return}
+  const g=want(i);
+  if(L.bat){setGE(i,L.bat===DUB+1);if(!g)return;const si=drumKit(),key=[g,si,G.base,G.beats,bpm()<110].join();
+   if(key===L.dk||!calm(L,key))return;if(!BUF[SOUNDS[si].id]){loadSound(si);return}
+   L.dk=key;L.bat=g;L.sound=si;L.mx.w={[SOUNDS[si].id]:1};send({type:"swap",i,data:batRender(g,si),frame:drumAt()});return}
+  setGE(i,!!g&&g===DUB+1&&L.fixed);
+  if(!g){if(L.fixed&&calm(L,"")){L.fixed=false;L.dk="";L.org=null;send({type:"swap",i,data:null,frame:drumAt()})}return}
+  if(!L.mx?.h?.length||L.state!=="play")return;
+  const key=[g,L.sound,G.base,G.beats,bpm()<110,L.mx.h.length].join();if(key===L.dk||!calm(L,key))return;
+  if(!BUF[SOUNDS[L.sound].id]){loadSound(L.sound);return}
+  // la parte suonata: la prima volta si chiede al core (onDump), poi resta qui per i cambi di genere
+  if(!L.org){if(!L.orgReq){L.orgReq=true;send({type:"dump",all:true,exp:true,only:i,tag:"fix"})}return}
+  const data=fixRender(i,g,L.org);L.fixed=true;L.dk=key;send({type:"swap",i,data,keep:true,frame:drumAt()})})}
+// la parte suonata di una batteria da correggere (vedi drumSync)
+function onFixDump(items){for(const it of items){const L=G.loops[it.i];L.orgReq=false;if(!L.fixed&&L.has)L.org=it.data}}
 
 // ---------- Consigli sugli strumenti ----------
 // Tre suoni sempre in vista sopra il pannello: i primi due coprono i ruoli che mancano al giro (nell'ordine di una band:
@@ -658,7 +745,7 @@ function noteOn(note,vel){if(!ready)return;
   ev={i,kind:ti>=0?"rec":"dub",note,vel,sound:SET.sound,q:L.q,on:nowF(),off:null,comp:L.first&&ti>=0?0:latencyFrames()};G.ev.push(ev)}
  // nota annotata: il suono dal vivo non va al looper, nel loop entra la versione a tempo; altrimenti va sul bus registrato
  if(ev)ev.lv=DJV[7]; // il volume della tastiera vale anche per la nota rimessa a tempo nel loop
- if(i>=0){mxNote(G.loops[i],SOUNDS[SET.sound],note);if(SOUNDS[SET.sound].drum)hitNote(G.loops[i],ti>=0,note)}
+ if(i>=0){mxNote(G.loops[i],SOUNDS[SET.sound],note);if(SOUNDS[SET.sound].drum)hitNote(G.loops[i],ti>=0,note,vel)}
  held.set(note,{v:voice(SET.sound,note,vel,nowT(),ev?masterIn:liveBus[G.cur],DJV[7]),sus:false,ev});uiNote(note,true)}
 let sustain=false;
 function noteOff(note,force){const h=held.get(note);if(!h)return;if(sustain&&!force){h.sus=true;return}
@@ -668,7 +755,7 @@ function setSustain(on){sustain=on;if(!on)[...held.entries()].filter(([,h])=>h.s
 // spegne tutte le note dal vivo, anche quelle tenute dal pedale: per le note rimaste bloccate (cavo staccato,
 // rilascio perso). La chiamano ■ da fermo, Esc, i messaggi «all notes off» e lo stacco di una tastiera. Dice quante erano.
 function allNotesOff(){const n=held.size;sustain=false;[...held.keys()].forEach(k=>noteOff(k,true));pcHeld.clear();return n}
-function setSound(i){lastInCat[SOUNDS[i].cat]=i;if(i===SET.sound)return;SET.sound=i;saveSet();if(ready)loadSound(i);render()}
+function setSound(i){lastInCat[SOUNDS[i].cat]=i;if(SOUNDS[i].drum)lastKit=i;if(i===SET.sound)return;SET.sound=i;saveSet();if(ready)loadSound(i);render()}
 // ▲▼ saltano di famiglia (riprendendo l'ultimo suono usato lì), il tasto centrale scorre i suoni della famiglia
 const lastInCat={};
 let CATS=[...new Set(SOUNDS.map(s=>s.cat))];
@@ -691,10 +778,19 @@ const BTN={18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepFa
 function initMIDI(){
  if(!navigator.requestMIDIAccess){setMidi(false,"MIDI non supportato: usa Chrome");return}
  navigator.requestMIDIAccess().then(acc=>{
-  const bind=()=>{const names=[];acc.inputs.forEach(inp=>{inp.onmidimessage=e=>atEvent(e,()=>onMIDI(e));names.push(inp.name.replace(/ MIDI In$/,""))});
+  const bind=()=>{const names=[];acc.inputs.forEach(inp=>{inp.onmidimessage=e=>{if(!away)atEvent(e,()=>onMIDI(e))};names.push(inp.name.replace(/ MIDI In$/,""))});
    setMidi(names.length>0,names.length?names.join(", "):"Nessuna tastiera")};
   // una tastiera che si stacca non manda più i rilasci: spengo le note
   bind();acc.onstatechange=e=>{if(e&&e.port&&e.port.type==="input"&&e.port.state==="disconnected")allNotesOff();bind()}},()=>setMidi(false,"MIDI non consentito"))}
+// ---------- Una scheda sola ----------
+// Web MIDI manda l'Axiom a tutte le schede: con Giro aperto due volte ogni nota suonava anche nell'altra scheda, col suono
+// scelto lì (l'utente sentiva «il pianoforte sotto tutti i suoni»). L'ultima scheda accesa vince e lo dice alle altre
+// (BroadcastChannel); quelle già accese vanno in pausa: audio sospeso, Axiom, tastiera del PC e telefono ignorati,
+// finché non si preme USA QUESTA SCHEDA (che mette in pausa l'altra).
+let away=false;const tabId=Math.random().toString(36).slice(2),tabCh=typeof BroadcastChannel==="function"?new BroadcastChannel("giro"):null;
+function tabTake(){tabCh?.postMessage({take:tabId});if(!away)return;away=false;$("#away").hidden=true;ctx?.resume();render()}
+if(tabCh)tabCh.onmessage=e=>{if(!e.data||e.data.take===tabId||away||!ctx)return;
+ away=true;allNotesOff();stopRelease();playUp();for(const i in holdT)padUp(+i);$("#away").hidden=false;ctx.suspend()};
 let diagOn=false;const diagLines=new Map();
 // sceglie il loop su cui sovraincidere senza toccarne il pad (che lo fermerebbe): solo tra i loop pieni
 function selStep(d){const ids=G.loops.map((L,i)=>L.has?i:-1).filter(i=>i>=0);if(!ids.length)return;
@@ -776,6 +872,7 @@ function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;
 // tasti delle note: nessuna di queste lettere può essere un comando (i comandi sono controllati prima)
 const KEYMAP="awsedftgyhujkolp;'";const pcHeld=new Map();
 addEventListener("keydown",e=>atEvent(e,()=>{
+ if(away)return;
  if(!$("#gate").hidden){e.preventDefault();start();return}
  if(!$("#settings").hidden){if(e.key==="Escape")closeSettings();return}
  if(e.target.matches("input,select")||e.ctrlKey||e.metaKey||e.altKey)return;

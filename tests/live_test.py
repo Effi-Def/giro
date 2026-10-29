@@ -57,14 +57,14 @@ async def main():
           const v0=G.loops[0].vol;kc(1,0);kc(2,127);kc(4,127);kc(5,127);kc(6,127);kc(7,60);kc(8,64);await wait(400);
           res.djBar=!document.querySelector('#djBar').hidden;res.djVolUntouched=G.loops[0].vol===v0;
           res.djFilter=DJ.lp.frequency.value<1000;res.djEcho=DJ.eWet.gain.value>.4&&DJ.eFb.gain.value>.5;
-          res.djGen=djText(3)==='shuffle · serve un loop di batteria'&&pumpAuto&&!!PG.pumpOsc; // la manopola 4 è il genere: la pompa del drop resta
+          res.djGen=djText(3)==='funk · batterista nel loop 3'&&G.loops[2].bat===8&&pumpAuto&&!!PG.pumpOsc; // la manopola 4 è la batteria: la pompa del drop resta
           res.djCrush=!!DJ.crush.curve;res.djWobble=DJ.wbK===4&&!!DJ.wbOsc;
           res.djRoll=DJ.rollK===2;res.djLive=Math.abs(DJV[7]-64/127)<1e-6;
           await wait(Math.round(G.base/G.beats/2/sr*1000)*2+150);res.djRollOn=DJ.rWet.gain.value===1&&DJ.rDry.gain.value===0;
           // tutto spento di nuovo: il suono torna com'era
           kc(1,64);kc(2,0);kc(4,0);kc(5,0);kc(6,0);kc(7,0);kc(8,127);await wait(400);
-          res.djOff=DJ.lp.frequency.value>15000&&DJ.hp.frequency.value<20&&DJ.eWet.gain.value<.01&&DJV[3]===0&&!DJ.crush.curve&&!DJ.wbOsc&&DJ.wbK===0&&DJ.rollK===0&&DJ.rDry.gain.value===1&&DJ.rWet.gain.value===0&&DJV[7]===1;
-          // effetti sul singolo loop: il loop 1 tiene l'eco, le manopole passano al loop 2 (genere); la manopola 8 è il volume del loop
+          res.djOff=DJ.lp.frequency.value>15000&&DJ.hp.frequency.value<20&&DJ.eWet.gain.value<.01&&DJV[3]===0&&!G.loops[2].has&&!DJ.crush.curve&&!DJ.wbOsc&&DJ.wbK===0&&DJ.rollK===0&&DJ.rDry.gain.value===1&&DJ.rWet.gain.value===0&&DJV[7]===1;
+          // effetti sul singolo loop: il loop 1 tiene l'eco, le manopole passano al loop 2 (batteria: solo sui loop di batteria); la manopola 8 è il volume del loop
           G.sel=0;setFxScope('loop');kc(2,127);await wait(300);
           const an=ctx.createAnalyser();LDJ[0].out.connect(an);await wait(300);const buf=new Float32Array(2048);an.getFloatTimeDomainData(buf);
           res.fxLoopSound=buf.some(x=>Math.abs(x)>1e-4);
