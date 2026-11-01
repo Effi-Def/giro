@@ -1,5 +1,5 @@
 // ---------- Audio ----------
-let ctx,sr,node,core=null,ready=false,GE=null,masterIn,masterOut,cutF,dry,wet,noiseBuf,liveBus=[],usingWorklet=false,bHP,dropG,fxBus,lim,safeClip,PG;
+let ctx,sr,node,core=null,ready=false,masterIn,masterOut,cutF,dry,wet,noiseBuf,liveBus=[],usingWorklet=false,bHP,dropG,fxBus,lim,safeClip,PG;
 const SET={sound:0,cut:1,rev:.12,master:.9,oct:0,quant:4,mix:2,amix:1};
 // mix: 2 = mix più grosso; chi aveva le impostazioni di prima riparte col riverbero più basso
 function loadSet(){try{Object.assign(SET,JSON.parse(localStorage.getItem("giro5.set")||"{}"))}catch(_){}SET.sound=Math.min(SET.sound|0,SOUNDS.length-1);delete SET.latMs;
@@ -24,11 +24,8 @@ async function initAudio(){
  safeClip=ctx.createWaveShaper();safeClip.curve=clipCurve();
  masterOut.connect(dropG);dropG.connect(lim);fxBus.connect(lim);lim.connect(safeClip);safeClip.connect(ctx.destination);tapMaster();
  // pompa sul mix: ci passano i loop che non sono di batteria (routeLoops), così la cassa resta piena e il resto «respira»
- PG={pump:ctx.createGain(),pumpAmt:ctx.createGain(),pumpOsc:null};PG.pumpAmt.gain.value=0;PG.pumpAmt.connect(PG.pump.gain);PG.pump.connect(masterIn);
- // eco del genere dub: un quarto puntato, scura e senza bassi (la cassa non rimbomba), ci passano i loop di batteria in dub
- GE={in:ctx.createGain(),hp:ctx.createBiquadFilter(),del:ctx.createDelay(3),lp:ctx.createBiquadFilter(),fb:ctx.createGain(),wet:ctx.createGain()};
- GE.hp.type="highpass";GE.hp.frequency.value=400;GE.lp.type="lowpass";GE.lp.frequency.value=1800;GE.fb.gain.value=.5;GE.wet.gain.value=.5;GE.del.delayTime.value=.75;
- GE.in.connect(GE.hp);GE.hp.connect(GE.del);GE.del.connect(GE.lp);GE.lp.connect(GE.fb);GE.fb.connect(GE.del);GE.lp.connect(GE.wet);GE.wet.connect(masterIn);
+ PG={pump:ctx.createGain(),pumpAmt:ctx.createGain(),pumpOsc:null};PG.pumpAmt.gain.value=0;PG.pumpAmt.connect(PG.pump.gain);
+ PG.pump.connect(masterIn);
  // tre bus per il suono dal vivo: sentito subito e registrabile dal looper
  for(let b=0;b<3;b++){const g=ctx.createGain();g.channelCount=1;g.channelCountMode="explicit";g.connect(masterIn);liveBus.push(g)}
  try{
@@ -71,13 +68,13 @@ function clipCurve(){const n=4096,c=new Float32Array(n);for(let j=0;j<n;j++){con
 function satCurve(k){const n=2048,c=new Float32Array(n);for(let j=0;j<n;j++){const u=(j/(n-1)*2-1)*2;c[j]=Math.tanh(k*u)/k}return c}
 
 // ---------- Effetti DJ: su tutto il mix o sul singolo loop ----------
-// 1 filtro · 2 eco · 3 riverbero · 4 batteria (batterista e correttore, vedi drumSync) · 5 crusher · 6 wobble · 7 roll · 8 volume (tastiera sul mix, del loop sul loop).
+// 1 filtro · 2 eco · 3 riverbero · 4 velocità · 5 crusher · 6 wobble · 7 roll · 8 volume (tastiera sul mix, del loop sul loop).
 // Tutti nodi nativi del browser (leggeri). A manopole spente (filtro al centro) il suono passa com'era.
 // Ambito "mix": la catena DJ fra masterIn e il filtro generale. Ambito "loop": ogni loop esce dal worklet su
 // un'uscita sua, che passa per una catena tutta sua, creata al primo effetto. Cambiando loop selezionato,
 // quello di prima tiene i suoi effetti e le manopole passano al nuovo.
-const DJ_NAMES=["FILTRO","ECO","RIVERBERO","BATTERIA","CRUSHER","WOBBLE","ROLL","TASTIERA"];
-const DJV=[0,0,0,0,0,0,0,1]; // valori del mix: filtro -1…1 (0 = spento), gli altri 0…1; la tastiera parte al massimo
+const DJ_NAMES=["FILTRO","ECO","RIVERBERO","VELOCITÀ","CRUSHER","WOBBLE","ROLL","TASTIERA"];
+const DJV=[0,0,0,0,0,0,0,1]; // valori del mix: filtro e velocità -1…1 (0 = spento), gli altri 0…1; la tastiera parte al massimo
 let DJ=null,fxScope="mix",revL=null;
 const LDJ=Array(8).fill(null),loopOut=[],loopTo=[]; // catene dei singoli loop (null = nessun effetto), uscite dei loop e dove vanno
 const ROLL_NAMES={1:"1/4",2:"1/8",4:"1/16",8:"1/32"},WB_NAMES={1:"1/4",2:"1/8",3:"1/8T",4:"1/16"};
@@ -91,14 +88,30 @@ function makeDJ(v){const c=ctx,g=v=>{const n=c.createGain();n.gain.value=v;retur
  D.pv=0;D.pump=g(1);D.pumpAmt=g(0);D.pumpAmt.connect(D.pump.gain);D.pumpOsc=null;
  // roll: una linea di ritardo lunga quanto il pezzo, che a un certo punto si richiude su sé stessa
  D.rDry=g(1);D.rIn=g(1);D.rFb=g(0);D.rWet=g(0);D.r=g(1);D.rDel=c.createDelay(2.5);
- // eco: mandata con ritardo a tempo e ritorno
- D.eDel=c.createDelay(3);D.eDel.delayTime.value=Math.min(2.9,.75*beatS());D.eFb=g(0);D.eWet=g(0);
+ // eco: delay di un quarto a tempo. La manopola apre la mandata: abbassandola le ripetizioni già partite si spengono da
+ // sole. Passa-alto e passa-basso anche sul ritorno: ogni ripetizione è più scura e la cassa non rimbomba
+ D.eSend=g(0);D.eHP=c.createBiquadFilter();D.eHP.type="highpass";D.eHP.frequency.value=250;D.eLP=c.createBiquadFilter();D.eLP.type="lowpass";D.eLP.frequency.value=4000;
+ D.eDel=c.createDelay(3);D.eDel.delayTime.value=echoTime();D.eFb=g(.4);D.eWet=g(.55);
  D.in.connect(D.crush);D.crush.connect(D.lp);D.lp.connect(D.hp);D.hp.connect(D.wb);D.wb.connect(D.pump);
  D.pump.connect(D.rDry);D.pump.connect(D.rIn);D.rIn.connect(D.rDel);D.rDel.connect(D.rFb);D.rFb.connect(D.rDel);D.rDel.connect(D.rWet);
  D.rDry.connect(D.r);D.rWet.connect(D.r);
- D.r.connect(D.out);D.r.connect(D.eDel);D.eDel.connect(D.eFb);D.eFb.connect(D.eDel);D.eDel.connect(D.eWet);D.eWet.connect(D.out);
+ D.r.connect(D.out);D.r.connect(D.eSend);D.eSend.connect(D.eHP);D.eHP.connect(D.eLP);D.eLP.connect(D.eDel);D.eDel.connect(D.eFb);D.eFb.connect(D.eHP);D.eDel.connect(D.eWet);D.eWet.connect(D.out);
  D.out.connect(D.rev); // mandata al riverbero: la usano solo i loop (il mix ha il suo in applyMix)
  return D}
+// Velocità (manopola 4): al centro normale, a sinistra i loop rallentano fino a fermarsi, a destra accelerano fino al doppio;
+// l'intonazione segue, come un disco. La fa il core, che i loop li ha già tutti in memoria e può leggerli anche più avanti della
+// griglia. La griglia non si ferma: tornando al centro la velocità risale e sul prossimo 1 la lettura torna a tempo.
+// Vale per ogni loop: velocità del mix × velocità del loop. Le note suonate non ci passano.
+const speedOf=a=>1+a;
+function speedTick(f){let ch=false;const run=G.base&&G.running;
+ G.loops.forEach((L,i)=>{const r=run?speedOf(DJV[3])*(LDJ[i]?speedOf(LDJ[i].v[3]):1):1;
+  if(L.rb&&f>=L.rb){L.rb=0;ch=true}
+  if(r===(L.rt??1))return;
+  // al doppio e a metà i battiti cadono ancora sulla griglia, ma girando la manopola la lettura è scivolata: sul prossimo 1 riparte dal punto giusto
+  ch=true;if(r!==1){L.rb=0;send({type:"rate",i,v:r,home:run&&(r===2||r===.5)?nextBar(f):0})}
+  else{L.rb=run?nextBar(f):0;send({type:"rate",i,v:1,home:run?L.rb:1})}
+  L.rt=r});
+ return ch}
 // catena del loop i: la crea e ci fa passare l'uscita del loop (solo con l'AudioWorklet, che ha un'uscita per loop)
 function loopDJ(i){if(LDJ[i])return LDJ[i];if(!usingWorklet||!loopOut[i])return null;
  if(!revL){revL=ctx.createGain();const cv=ctx.createConvolver();cv.buffer=impulse(2.4);revL.connect(cv);cv.connect(masterOut)}
@@ -108,11 +121,11 @@ function dropLoopDJ(i){const D=LDJ[i];if(!D)return;LDJ[i]=null;
  loopOut[i].disconnect();loopOut[i].connect(loopTo[i]);D.out.disconnect();D.rev.disconnect();
  for(const o of[D.pumpOsc,D.wbOsc])if(o)try{o.stop()}catch(_){}}
 const djAll=()=>[DJ,...LDJ].filter(Boolean);
-// i loop melodici vanno nella pompa del mix (PG), quelli di batteria direttamente al mix
+// i loop melodici vanno nella pompa del mix (PG), quelli di batteria direttamente a masterIn
 function routeLoops(){G.loops.forEach((L,i)=>{if(!loopOut[i])return;const want=L.has&&!SOUNDS[L.sound]?.drum?PG.pump:masterIn;if(loopTo[i]===want)return;
  const src=LDJ[i]?LDJ[i].out:loopOut[i];src.disconnect(loopTo[i]);src.connect(want);loopTo[i]=want})}
-const fxActive=D=>!!D&&(D.rollK>0||D.wbK>0||D.v.some((x,i)=>i===0?x!==0:i<5&&x>.02));
-const beatS=()=>G.base?G.base/G.beats/sr:.5;
+const fxActive=D=>!!D&&(D.rollK>0||D.wbK>0||D.v.some((x,i)=>i===0||i===3?x!==0:i<5&&x>.02));
+const beatS=()=>G.base?G.base/G.beats/sr:.5,echoTime=()=>Math.min(2.9,beatS())-128/sr; // il giro di ritorno aggiunge un blocco audio: senza togliere le ripetizioni scivolano di 2,7 ms l'una
 // forma della pompa su un battito: niente all'attacco (la cassa passa), giù del tutto al 3%, risale entro il 60%.
 // L'oscillatore dà e(t) − media; il guadagno è 1 − d·e(t) = (1 − d·media) − d·(e − media).
 let pumpWave=null,PUMP_MEAN=0,cosWave=null;
@@ -129,7 +142,7 @@ function pumpSet(D,t,tau=.02){pumpShape();const P=pumpOf(D),d=G.base&&D.pv>.02?.
 // at: frame da cui far partire pompa e wobble (deve stare su un battito), altrimenti il prossimo battito
 function djRetime(){if(!DJ)return;djAll().forEach(D=>djRetimeOne(D))}
 function djRetimeOne(D,at){const t=ctx.currentTime,b=G.base?G.base/G.beats:0;
- D.eDel.delayTime.setTargetAtTime(Math.min(2.9,.75*beatS()),t,.05);if(D===DJ&&GE)GE.del.delayTime.setTargetAtTime(Math.min(2.9,1.5*beatS()),t,.05);
+ D.eDel.delayTime.setTargetAtTime(echoTime(),t,.05);
  const T=b?(at??G.origin+Math.ceil((nowF()+sr*.02-G.origin)/b)*b)/sr:0;
  const P=pumpOf(D);for(const [O,k] of[[P,"pumpOsc"],[D,"wbOsc"]])if(O[k]){try{O[k].stop()}catch(_){}O[k].disconnect();O[k]=null}
  if(D.pv>.02&&G.base){const o=ctx.createOscillator();o.setPeriodicWave(pumpShape());o.frequency.value=1/beatS();o.connect(P.pumpAmt);o.start(T);P.pumpOsc=o}
@@ -154,14 +167,14 @@ function djApply(D,i){const t=ctx.currentTime,a=D.v[i];
   case 0:{const u=Math.max(0,(Math.abs(a)-.04)/.96);
    D.lp.frequency.setTargetAtTime(a<0?22000*Math.pow(180/22000,u):22000,t,.02);D.hp.frequency.setTargetAtTime(a>0?10*Math.pow(600,u):10,t,.02);
    D.lp.Q.setTargetAtTime(a<0?.7+u*1.3:.7,t,.05);D.hp.Q.setTargetAtTime(a>0?.7+u*1.3:.7,t,.05);break}
-  case 1:D.eWet.gain.setTargetAtTime(a*.55,t,.03);D.eFb.gain.setTargetAtTime(a>0?.15+a*.55:0,t,.03);D.eDel.delayTime.setTargetAtTime(Math.min(2.9,.75*beatS()),t,.05);break;
+  case 1:D.eSend.gain.setTargetAtTime(a,t,.03);D.eFb.gain.setTargetAtTime(a>.02?.35+a*.45:.4,t,.03);break;
   case 2:if(D===DJ)applyMix();else D.rev.gain.setTargetAtTime(a*.8,t,.03);break;
-  case 3:if(!genOf(a))batDrop(D===DJ?"mix":"loop");drumSync();break;
   case 4:D.crush.curve=crushCurve(a);break;
   case 5:{const k=a<.1?0:[1,2,3,4][Math.min(3,Math.floor((a-.1)/.9*4))];if(k!==D.wbK){D.wbK=k;djRetimeOne(D)}break}
   case 6:djRoll(D,a<.1?0:[1,2,4,8][Math.min(3,Math.floor((a-.1)/.9*4))]);break}}
 function djKnob(i,v){let x=v/127;
- if(i===0){x=Math.max(-1,Math.min(1,(v-64)/63));if(Math.abs(x)<.04)x=0}
+ if(i===0||i===3){x=Math.max(-1,Math.min(1,(v-64)/63));if(Math.abs(x)<.04)x=0}
+ if(i===3&&Math.abs(x+.5)<.03)x=-.5; // metà velocità esatta, come il doppio tutta a destra: resta a tempo
  if(fxScope==="loop"){const n=G.sel,L=G.loops[n];
   if(!L.has){flashHint("Effetti sul loop: prima registra un loop e selezionalo.");return}
   if(i===7){L.vol=x;send({type:"vol",i:n,v:x});saveSoon();flashHint(`Loop ${n+1}: volume ${Math.round(x*100)}%`);render();return}
@@ -175,21 +188,18 @@ function djView(){if(fxScope==="mix")return{v:DJV,rollK:DJ?DJ.rollK:0,wbK:DJ?DJ.
  const D=LDJ[G.sel];return{v:D?D.v:[0,0,0,0,0,0,0,0],rollK:D?D.rollK:0,wbK:D?D.wbK:0}}
 function djText(i){const V=djView(),a=V.v[i];
  if(i===7&&fxScope==="loop")return Math.round(G.loops[G.sel].vol*100)+"%";
- if(i===0)return a===0?"spento":a<0?"più scuro "+Math.round(-a*100)+"%":"più leggero "+Math.round(a*100)+"%";
- if(i===6)return V.rollK?"ripete "+ROLL_NAMES[V.rollK]:(G.base&&G.running?"spento":"serve un loop che suona");
- if(i===5)return !V.wbK?"spento":G.base?"wobble "+WB_NAMES[V.wbK]:"serve un loop che suona";
- if(i===3){const g=genOf(a);if(!g)return "spento";const n=DRUMS[g-1].name;if(!G.base)return n+" · prima registra un giro";
-  const fix=L=>L.mx?.h?.length?n+" · corregge la tua batteria":n+" · batteria senza note: suonala di nuovo";
-  if(fxScope==="loop"){const L=G.loops[G.sel];return L.bat?n+" · batterista":isDrum(G.sel)?fix(L):n+" · solo sui loop di batteria"}
-  const u=G.loops.find((L,j)=>isDrum(j)&&!L.bat),b=G.loops.findIndex(L=>L.has&&L.bat);
-  return u?fix(u):b>=0?n+` · batterista nel loop ${b+1}`:n+" · batterista"}
+ if(i===0)return a===0?"spento":a<0?"scuro "+Math.round(-a*100)+"%":"leggero "+Math.round(a*100)+"%";
+ if(i===6)return V.rollK?ROLL_NAMES[V.rollK]:(G.base&&G.running?"spento":"serve un loop");
+ if(i===5)return !V.wbK?"spento":G.base?WB_NAMES[V.wbK]:"serve un loop";
+ if(i===3){if(a===0)return (fxScope==="mix"?G.loops.some(L=>L.rb):G.loops[G.sel].rb)?"a tempo sull'1":"normale";
+  if(!G.base||!G.running)return "serve un loop";return a<-.97?"fermo":Math.round((1+a)*100)+"%"}
  return a<.02&&i!==7?"spento":Math.round(a*100)+"%"}
 function setFxScope(m){fxScope=m;
  flashHint(m==="loop"?`Effetti DJ sul <b>loop selezionato</b> (ora il ${G.sel+1}). Cambiando loop, quello di prima tiene i suoi effetti.`:"Effetti DJ su <b>tutto il mix</b>.");render()}
 const toggleFxScope=()=>setFxScope(fxScope==="mix"?"loop":"mix");
 // spegne tutti gli effetti, sul mix e su ogni loop (i volumi restano com'erano)
-function stopAllFx(){for(let i=0;i<7;i++)if(i!==3)DJV[i]=0; // la batteria (4) non è un effetto: resta
- if(DJ){for(let i=0;i<7;i++)if(i!==3)djApply(DJ,i);for(let i=0;i<LDJ.length;i++)dropLoopDJ(i);pumpAutoOff()}
+function stopAllFx(){for(let i=0;i<7;i++)DJV[i]=0;
+ if(DJ){for(let i=0;i<7;i++)djApply(DJ,i);for(let i=0;i<LDJ.length;i++)dropLoopDJ(i);pumpAutoOff()}
  flashHint("<b>Effetti spenti</b> su tutto il mix e su tutti i loop.");render()}
 // Tempo degli eventi. ctx.currentTime avanza a scatti: un blocco da 128 campioni alla volta, a raffiche lunghe quanto
 // il buffer della scheda (su questo PC 10 ms, scarto misurato 13,8 ms). Leggerlo quando arriva una nota dava fino a
@@ -206,8 +216,10 @@ function ckMax(){let m=-Infinity;for(const x of CK)if(x.o>m)m=x.o;return m}
 function eventTime(ts){clockSample();if(!(ts>0)||CK.length<2)return null;
  const t=ts/1000+ckMax(),now=ctx.currentTime;return t>now+.05||t<now-.25?null:t}
 let evT=null; // istante dell'evento che si sta gestendo (null = adesso)
+let evIn=null; // solo per il log di debug: [timeStamp, performance.now(), currentTime] letti appena arriva l'evento
 // gestisce un evento al suo istante: dentro fn, nowT() e nowF() valgono quell'istante
-function atEvent(e,fn){evT=ctx?eventTime(e&&e.timeStamp):null;try{return fn()}finally{evT=null}}
+function atEvent(e,fn){const p=performance.now();evIn=ctx?[e&&e.timeStamp||p,p,ctx.currentTime]:null;
+ evT=ctx?eventTime(e&&e.timeStamp):null;try{return fn()}finally{evT=null;evIn=null}}
 const nowT=()=>evT??ctx.currentTime;
 const nowF=()=>Math.round(nowT()*sr);
 // i suoni sono tutti interni: le note e i loop escono con lo stesso ritardo e chi suona si allinea a orecchio,
@@ -235,6 +247,7 @@ function beatsFor(len){const secs=len/sr;let n=1;while(60*n/secs<70)n*=2;return 
 const bpm=()=>G.base?60*G.beats/(G.base/sr):0;
 function gridF(q){return G.base/(G.beats*q)}
 function qIndex(ev,L){const g=gridF(ev.q),rel=ev.on-ev.comp-G.origin,q=Math.round(rel/g)*g;
+ if(ev.dbg){ev.dbg.rel=rel;ev.dbg.qf=q;ev.dbg.g=g}
  return((Math.round(q+G.origin-L.t0)%L.len)+L.len)%L.len}
 // Il tempo del primo giro è ambiguo: 2 battiti a 75 bpm o 4 a 150? beatsFor sceglie 70–140 bpm, e sopra i 140
 // la griglia diventerebbe larga il doppio: con 1/8 i levare finirebbero sul battere precedente. Se nelle note di
@@ -255,6 +268,7 @@ function commitDubNote(e){e.done=true;G.ev=G.ev.filter(x=>x!==e);const L=G.loops
  G.dubTake.push(e);checkDouble(G.dubTake);
  const idx=qIndex(e,L);let at=L.t0+idx;const min=e.on+L.len*.5;
  if(at<min)at+=Math.ceil((min-at)/L.len)*L.len;
+ if(e.dbg)e.dbg.at=at;
  send({type:"pend",i:e.i,start:idx,data:seg,at})}
 function cycleQuant(){setQuant(SET.quant===4?2:SET.quant===2?0:4)}
 function setQuant(v){SET.quant=v;saveSet();
@@ -280,7 +294,7 @@ function tap(i){
   case "dub":endDub(i);break}
  render()}
 
-function beginRec(i){const L=G.loops[i],f=nowF();
+function beginRec(i){const L=G.loops[i],f=nowF();dbgForget(i);
  if(L.first){G.running=false;G.firstOn=[];send({type:"rec",i,bus:G.cur,start:f,comp:0})}
  else{if(!G.running)playAll(f);send({type:"rec",i,bus:G.cur,start:f,comp:latencyFrames()})}
  L.start=f;L.state="rec";L.sound=SET.sound;L.q=SET.quant;
@@ -295,6 +309,7 @@ function close(i){const L=G.loops[i],f=nowF();
   const nb=freshBuf(len);send({type:"recEnd",i,end:f,len,t0:L.start,buf:nb},[nb.buffer]);
   // anche registrato senza quantizzazione, il primo giro decide se il tempo vero è il doppio (sopra i 140)
   if(L.q)renderRec(i);else checkDouble(G.firstOn.map(on=>({on,comp:0})));
+  DBG.gridClose=dbgGrid(L.q||4,L.q);
   send({type:"gate",i,on:1,frame:f});
   L.state="play";L.has=true;L.muted=false;G.running=true;rotateBus();djRetime();return}
  const k=Math.max(1,Math.round((f-L.start)/G.base)),len=k*G.base,end=Math.max(L.start+len,f);
@@ -311,7 +326,7 @@ function endDub(i){send({type:"undub",i});G.loops[i].state="play";rotateBus();re
 
 function clearLoop(i){const L=G.loops[i];
  if(L.state==="armed"){L.state="empty";render();return}
- send({type:"clear",i});Object.assign(L,{state:"empty",has:false,muted:false,pend:null,dropped:false,peaks:null});
+ send({type:"clear",i});dbgForget(i);Object.assign(L,{state:"empty",has:false,muted:false,pend:null,dropped:false,peaks:null});
  flashHint(`Loop ${i+1} cancellato. ◀ (annulla) lo riporta indietro.`)}
 
 function playAll(f){if(!G.base)return;f=f??nowF()+Math.round(sr*.02);
@@ -345,7 +360,7 @@ function stopPress(){clearTimeout(stopHold);
  stopHold=setTimeout(()=>{if(!anyHas())return;flashHint("Continua a tenere premuto per <b>cancellare tutto</b>…");
   stopHold=setTimeout(()=>{stopHold=0;if(anyHas())clearAll()},1500)},500)}
 function stopRelease(){clearTimeout(stopHold);stopHold=0}
-function clearAll(){send({type:"reset"});saveSoon();G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();pumpAutoOff();rollAllOff();djRetime();G.ev=[];
+function clearAll(){send({type:"reset"});saveSoon();for(let i=0;i<NL;i++)dbgForget(i);DBG.gridClose=null;G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();pumpAutoOff();rollAllOff();djRetime();G.ev=[];
  G.loops.forEach(L=>Object.assign(L,{state:"empty",has:false,muted:false,pend:null,dropped:false,peaks:null,undo:0,redo:0}));flashHint("Tutto cancellato. Il prossimo giro lo decidi tu.")}
 function playButton(){if(!ready)return;if(!G.base){flashHint(START_HINT);return}
  if(G.running){flashHint("Sta già suonando. <b>■</b> per fermare a fine giro.");return}playAll()}
@@ -419,7 +434,7 @@ function undoSel(redo){if(!ready)return;const i=G.sel,L=G.loops[i];
  if(L.state==="closing")return;
  if(L.state==="dub")L.state="play";
  if(redo?!L.redo:!L.undo){flashHint(redo?"Niente da ripetere.":"Niente da annullare sul loop "+(i+1)+".");return}
- send({type:redo?"redo":"undo",i});if(L.fixed){L.fixed=false;L.dk="";L.org=null} // il core ha lasciato la versione corretta: si rifà
+ send({type:redo?"redo":"undo",i});dbgForget(i);if(L.fixed){L.fixed=false;L.dk="";L.org=null} // il core ha lasciato la versione corretta: si rifà
  flashHint((redo?"Ripristinato":"Annullato")+` l'ultimo strato del loop ${i+1}.`)}
 
 // ---------- Sessione: salvataggio automatico dei loop in IndexedDB, ripresa all'apertura ----------
@@ -499,6 +514,8 @@ function doExport(items){
 function onDump(m){
  const items=m.items.map(it=>{const data=new Float32Array(it.len);let o=0;for(const ch of it.chunks){data.set(ch,o);o+=ch.length}return{i:it.i,len:it.len,t0:it.t0,data}});
  if(m.tag==="fix")return onFixDump(items);
+ if(m.tag==="beat")return onBeatDump(items);
+ if(m.tag==="debug")return dbgWrite(items);
  if(m.exp)return doExport(items);
  if(!m.has.some(Boolean)){if(!G.loops.some(L=>L.state==="rec"||L.state==="closing")&&!anyHas())idb("readwrite",s=>{s.clear()}).catch(()=>{});return}
  if(!G.base)return;
@@ -522,10 +539,59 @@ async function restoreSession(){
  setTimeout(()=>{restoring=false},500);
  flashHint("Ripresa la sessione precedente: <b>▶</b> per riascoltarla. Tieni premuto <b>■</b> per cancellare tutto.");render()}
 
+// ---------- Debug per Orecchio (orecchio/, formato in orecchio/FORMATO.md) ----------
+// Solo misure: Ctrl+Shift+D scarica un JSON con note, griglia, ripartenze e audio dei loop, orecchio.py lo analizza.
+// Nel buffer l'indice 0 di un loop è la sua prima nota (t0), che dopo il primo loop non cade sulla griglia: i contenuti stanno
+// al posto giusto perché tutto si conta in frame assoluti. Orecchio invece misura tutto dall'inizio del giro, quindi posizioni,
+// ripartenze e WAV escono contati da G.origin (stesso contenuto, buffer ruotato): altrimenti ogni loop dopo il primo risulterebbe sfasato.
+const DBG={notes:[],wraps:[],wk:{},gridClose:null,at:0},DBG_NOTES=2000,DBG_WRAPS=500;
+const dmod=(a,n)=>((a%n)+n)%n;
+function dbgGrid(q,on){return{loopLength:G.base/sr,bpm:bpm(),beats:G.beats,division:on?QNAMES[q]:null,step:gridF(q)/sr}}
+// una nota suonata dentro un loop. rel (frame dall'origine della griglia) e qf (frame quantizzato) li riscrive qIndex coi valori che usa davvero
+function dbgNote(i,note,ev,first){const L=G.loops[i],comp=ev?ev.comp:first?0:latencyFrames(),p=performance.now(),[midiTs,perfArrival,ctxArrival]=evIn||[p,p,ctx.currentTime];
+ const d={loop:i,overdub:!first,pitch:note,sound:SOUNDS[SET.sound].name,midiTs,perfArrival,ctxArrival,ctxUsed:nowT(),latencyComp:comp/sr,
+  rel:nowF()-comp-(first?L.start:G.origin),quant:ev?ev.q:0,qf:null,g:0,at:0};
+ DBG.notes.push(d);if(DBG.notes.length>DBG_NOTES)DBG.notes.shift();if(ev)ev.dbg=d}
+// il loop è cambiato del tutto (cancellato, annullato, registrato di nuovo): quelle note e quelle ripartenze non descrivono più il suo audio
+function dbgForget(i){DBG.notes=DBG.notes.filter(d=>d.loop!==i);DBG.wraps=DBG.wraps.filter(w=>w.loop!==i);delete DBG.wk[i]}
+// lunghezza o t0 cambiati (nuova registrazione, ▶ che sposta la griglia): le ripartenze di prima non sono più confrontabili
+function dbgWrap(m){const k=m.len+"/"+m.t0;if(DBG.wk[m.loop]!==k){DBG.wk[m.loop]=k;DBG.wraps=DBG.wraps.filter(w=>w.loop!==m.loop)}
+ DBG.wraps.push({loop:m.loop,ctx:m.ctx+dmod(G.origin-m.t0,m.len)/sr,ctxBuf:m.ctx});if(DBG.wraps.length>DBG_WRAPS)DBG.wraps.shift()}
+function dbgExport(){if(!G.base){flashHint("Debug: niente da esportare, registra almeno un loop.");return}
+ DBG.at=nowF();send({type:"dump",all:true,exp:true,tag:"debug"})}
+// WAV PCM 16 bit mono
+function encodeWav(x,rate){const n=x.length,d=new DataView(new ArrayBuffer(44+n*2)),w=(o,s)=>{for(let k=0;k<s.length;k++)d.setUint8(o+k,s.charCodeAt(k))};
+ w(0,"RIFF");d.setUint32(4,36+n*2,true);w(8,"WAVEfmt ");d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);
+ d.setUint32(24,rate,true);d.setUint32(28,rate*2,true);d.setUint16(32,2,true);d.setUint16(34,16,true);w(36,"data");d.setUint32(40,n*2,true);
+ for(let k=0;k<n;k++)d.setInt16(44+k*2,Math.round(Math.max(-1,Math.min(1,x[k]))*32767),true);
+ return new Uint8Array(d.buffer)}
+// a pezzi multipli di 3 byte: i pezzi in base64 si possono attaccare
+function b64enc(u){let s="";for(let k=0;k<u.length;k+=0x6000)s+=btoa(String.fromCharCode.apply(null,u.subarray(k,k+0x6000)));return s}
+function dbgWrite(items){if(!G.base)return;
+ const byId={},loops=items.map(it=>{byId[it.i]=it;const L=G.loops[it.i],rot=dmod(L.t0-G.origin,it.len),w=new Float32Array(it.len);
+  w.set(it.data.subarray(it.len-rot),0);w.set(it.data.subarray(0,it.len-rot),rot);
+  return{id:it.i,lengthSamples:it.len,wavBase64:b64enc(encodeWav(w,sr))}});
+ // la griglia di adesso (i battiti possono essersi raddoppiati dopo il primo giro) nell'ultima suddivisione usata
+ const lastQ=[...DBG.notes].reverse().find(d=>d.quant)?.quant,q=lastQ||SET.quant||4,g=gridF(q),notes=[];
+ for(const d of DBG.notes){const it=byId[d.loop],st=G.loops[d.loop].state;
+  // ancora fuori dal loop: registrazione da chiudere, nota quantizzata non ancora resa o tenuta
+  if(!it||st==="rec"||st==="closing"||(d.quant&&d.qf==null))continue;
+  const qr=d.qf==null?null:dmod(Math.round(d.qf),it.len)/sr;
+  // qpos è null se la nota non è stata quantizzata su questa griglia (Q spenta o cambiata) o non è ancora arrivata nel buffer:
+  // Orecchio la confronterebbe con la griglia di step e la darebbe per sbagliata
+  notes.push({loop:d.loop,cycle:Math.floor(d.rel/G.base),overdub:d.overdub,pitch:d.pitch,sound:d.sound,midiTs:d.midiTs,perfArrival:d.perfArrival,ctxArrival:d.ctxArrival,
+   ctxUsed:d.ctxUsed,latencyComp:d.latencyComp,pos:dmod(d.rel,it.len)/sr,qpos:d.g===g&&d.at<=DBG.at?qr:null,qposUsed:qr,stepUsed:d.g/sr})}
+ const log={giro_debug:1,sampleRate:sr,baseLatency:ctx.baseLatency||0,outputLatency:ctx.outputLatency||0,quantize:SET.quant?QNAMES[SET.quant]:null,
+  grid:dbgGrid(q,lastQ||SET.quant),gridClose:DBG.gridClose,worklet:usingWorklet,loops,notes,wraps:DBG.wraps.filter(w=>byId[w.loop])};
+ const t=new Date(),p=x=>String(x).padStart(2,"0"),name=`giro_debug_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}-${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.json`;
+ const url=URL.createObjectURL(new Blob([JSON.stringify(log)],{type:"application/json"})),el=document.createElement("a");el.href=url;el.download=name;document.body.appendChild(el);el.click();el.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),10000);flashHint("Debug esportato",2000)}
+
 function onCoreMsg(m){
+ if(m.type==="wrap")return dbgWrap(m);
  if(m.type==="dump")return onDump(m);
  const L=G.loops[m.i];if(!L)return;
- if(m.type==="peaks"){L.peaks=m.peaks;drawWave(m.i);saveSoon();return}
+ if(m.type==="peaks"){L.peaks=m.peaks;L.ver=m.ver;drawWave(m.i);saveSoon();return}
  if(m.type==="state"){saveSoon();L.undo=m.undo;L.redo=m.redo;
   if(m.has){L.len=m.len;L.t0=m.t0;
    if(!L.has||L.state==="empty"){L.has=true;L.state="play";L.muted=false;if(!G.base){G.base=m.len;G.origin=m.t0}
@@ -535,7 +601,7 @@ function onCoreMsg(m){
 
 let perfLast=-1;
 function tick(){if(!ready)return;const f=nowF();let ch=false;
- rollTick();routeLoops();autoMix();drumSync();if(G.dropAt&&f>=G.dropAt){G.dropAt=0;bld=null;flashHint("<b>DROP!</b>")}
+ rollTick();routeLoops();autoMix();drumSync();if(speedTick(f))ch=true;if(G.dropAt&&f>=G.dropAt){G.dropAt=0;bld=null;flashHint("<b>DROP!</b>")}
  if(perf&&Math.floor(perfSecs())!==perfLast){perfLast=Math.floor(perfSecs());render()}
  if(G.stopAt&&f>=G.stopAt){stopAll();ch=true}
  // un loop cancellato perde anche i suoi effetti
@@ -582,124 +648,175 @@ function autoMix(){
   if(t.r&&ROLES[t.r].pan&&G.loops.some((o,j)=>j!==i&&o.has)){const S=G.loops.reduce((a,o,j)=>a+(j!==i&&o.has?o.pan:0),0);
    x=(S>.01?-1:S<-.01?1:t.r==="mel"?1:-1)*ROLES[t.r].pan}
   if(x!==L.pan){L.pan=x;send({type:"pan",i,v:x});saveSoon()}})}
-// ---------- Batteria (manopola 4 degli effetti DJ) ----------
-// Chi suona non sa fare bene le parti di batteria (riordinare i colpi suonati, la versione di prima, non bastava).
-// Girando la manopola si sceglie un genere e:
-// - BATTERISTA: se nel giro non c'è una batteria, crea un loop di batteria nel primo posto libero, col kit scelto nel
-//   pannello suoni (l'ultimo kit scelto, se adesso è scelto uno strumento); cambiando kit o genere si rifà;
-// - CORRETTORE: sopra le batterie suonate (quelle con le note in mx.h) lo schema del genere aggiunge quello che manca:
-//   gli strumenti non suonati (cassa, rullante, charleston), i rullanti fantasma, la rullata alla quarta battuta e il
-//   piatto all'inizio. L'audio suonato resta com'è (una versione che lo risuonava dalle note a sedicesimi rompeva il
-//   groove di chi suona in terzine), e se chi suona mette i levare in terzina, anche le aggiunte vanno in terzina.
-//   L'audio arriva dal core (dump con only e tag "fix", L.org); la versione suonata resta da parte (swap con keep).
-// Tutta a sinistra: il batterista se ne va, le batterie suonate tornano come erano. STOP EFFETTI non la tocca.
-// Schemi scritti a mano, frasi di 4 battute di sedicesimi: A la battuta base (1 e 3), B la variazione (2), F la rullata (4);
-// in B e F «-» lascia quello di A. Cifre = forza, X = piena. Righe (la mappa dei kit, da Do): K cassa, R rim, S rullante,
-// C clap, L/M/A tom basso, medio, alto, H charleston, T charleston corto, O aperto, Y piatto.
-// sw: ritardo in sedicesimi [degli ottavi in levare, dei sedicesimi in levare] · fast: il d&b sotto i 110 bpm va a tempo
-// doppio (una battuta ogni 2 battiti: a 85–100 diventa 170–200) · crash: piatto all'inizio della frase
-const DRUM_ROW={K:0,R:1,S:2,C:3,L:5,H:6,M:7,T:8,A:9,O:10,Y:11};
-const DRUMS=[
- {name:"drum & bass",fast:1,crash:1,A:{K:"X.........X.....",S:"....X..2.2..X..3",H:"7.5.7.5.7.5.7.5."},
-  B:{K:"X.X.......X.....",S:"....X..2....X.2."},F:{K:"----------X-....",S:"------------X7X9",H:"------------...."}},
- {name:"metà tempo",crash:1,A:{K:"X.........X.....",S:"........X.......",H:"7.5.7.5.7.5.7.5."},
-  B:{K:"X.....5...X.....",H:"7.5.7.5.7.5.6565"},F:{K:"--------X.....X.",S:"--------------4X",H:"--------75757878"}},
- {name:"dub",echo:1,sw:[.4,0],A:{K:"........X.......",R:"........X.......",H:"6.4.6.4.6.4.6.4."},
-  B:{R:"........X.....4.",H:"6.4.6.4.6.4.6.5."},F:{R:"------------X...",M:"-------------6..",L:"--------------7.",H:"------------...."}},
- {name:"shuffle",sw:[.667,0],A:{K:"X.......X.....4.",S:"....X.......X...",H:"7.5.7.5.7.5.7.5."},
-  B:{K:"X.....4.X.......",S:"....X.......X.3."},F:{S:"------------X...",M:"--------------7.",H:"------------...."}},
- {name:"house",crash:1,A:{K:"X...X...X...X...",C:"....X.......X...",O:"..7...7...7...7.",H:"4...4...4...4..."},
-  B:{C:"....X.......X..4"},F:{S:"------------5678"}},
- {name:"rock",crash:1,A:{K:"X.......X.X.....",S:"....X.......X...",H:"8.5.8.5.8.5.8.5."},
-  B:{K:"X.....X.X......."},F:{K:"--------X.......",S:"--------87......",A:"----------77....",M:"------------77..",L:"--------------88",H:"--------........"}},
- {name:"hip hop",sw:[0,.33],A:{K:"X......X..X.....",S:"....X.......X...",H:"7.5.7.5.7.5.7.5."},
-  B:{K:"X.X....X...X....",H:"7.5.7.5.7.5.7...",O:"..............6."},F:{K:"--------X...X.X.",S:"------------X..4"}},
- {name:"funk",crash:1,sw:[0,.15],A:{K:"X.X.......X..X..",S:"....X..3.3..X..3",H:"8484848484848484"},
-  B:{K:"X.X...X...X.....",S:"....X..3.3..X.3."},F:{K:"------------X...",S:"------------X7X8",H:"------------...."}}];
-const DUB=3; // il genere dub ha la sua eco (GE)
-const genOf=a=>a<.08?0:1+Math.min(DRUMS.length-1,Math.floor((a-.08)/.92*DRUMS.length));
+// ---------- Batteria ----------
+// Per ora senza comando: la manopola 4 è passata a Rallenta. Il motore resta qui, con drumLv = 0 non fa niente (drumSet nei test).
+// Chi suona non sa fare bene le parti di batteria. Due versioni bocciate: riordinare i colpi suonati per genere, e un
+// batterista con 8 generi scritti a mano in 4/4 («non mi piace»: su un giro di lunghezza strana scivolava fuori dal giro,
+// e sopra una melodia con accenti sfasati faceva il suo schema dritto). Ora la batteria segue i loop che ci sono:
+// - gli attacchi si leggono dall'audio dei loop (beatOnsets), anche di quelli registrati senza quantizzazione e delle
+//   sessioni di prima; si rileggono quando un loop cambia (L.ver dal core, cache in BO);
+// - la griglia è quella che spiega meglio gli attacchi (beatGrid): dritta o in terzina, con qualsiasi numero di battiti
+//   nel giro; la batteria dura quanto il loop più lungo (raddoppiato fino a ~6 s) e parte dall'1 del giro: non scivola;
+// - cassa e rullante cadono sugli attacchi più forti, esattamente dove sono (cassa sull'1 e sui più gravi, poi alternati),
+//   il charleston va sulla griglia (drumPlan).
+// La manopola è la quantità (DRUM_LV): essenziale (cassa e rullante) · charleston sui battiti · charleston fitto · piena
+// (rullanti fantasma sugli altri attacchi, aperto alla fine) · piena con rullata e piatto alla fine della frase.
+// BATTERISTA: senza batteria nel giro crea un loop di batteria nel primo posto libero col kit scelto nel pannello (l'ultimo
+// kit scelto, se adesso è scelto uno strumento) e si rifà quando cambiano i loop, il kit o la quantità.
+// CORRETTORE: sopra una batteria suonata (note in mx.h) la stessa batteria aggiunge solo quello che manca (strumenti non
+// suonati, fantasmi, rullata, piatto); l'audio suonato resta com'è (L.org, dal core) e tace solo nella rullata; la
+// versione suonata resta da parte (swap con keep). Tutta a sinistra: il batterista se ne va, le batterie suonate tornano
+// come erano. STOP EFFETTI non la tocca.
+const DRUM_LV=["essenziale","charleston","charleston fitto","piena","piena con rullata"];
+const lvOf=a=>a<.08?0:1+Math.min(DRUM_LV.length-1,Math.floor((a-.08)/.92*DRUM_LV.length));
 const isDrum=i=>{const L=G.loops[i];return L.has&&!!SOUNDS[L.sound]?.drum};
 // classe di un colpo dalla nota: k cassa, s rullante, rim o clap, t tom, h charleston, y piatto
 const drumCls=n=>{const c=((n%12)+12)%12;return c===0?"k":c<=4?"s":c===11?"y":c===6||c===8||c===10?"h":"t"};
+const DK=48,DS=50,DH=54,DO=58,DY=59; // cassa, rullante, charleston chiuso e aperto, piatto (mappa dei kit)
 let lastKit=-1;
 function drumKit(){if(SOUNDS[SET.sound]?.drum)return SET.sound;if(SOUNDS[lastKit]?.drum)return lastKit;return Math.max(0,SOUNDS.findIndex(s=>s.id==="batteria"))}
 // colpi di batteria suonati: [indice nel buffer, classe, quantizzazione, nota, forza]
 function hitNote(L,rec,note,vel){const M=L.mx||(L.mx=freshMx()),f=nowF()-(rec&&L.first?0:latencyFrames());if(!M.h)M.h=[];
  if(M.h.length<4000)M.h.push([rec?f-L.start:((f-L.t0)%L.len+L.len)%L.len,drumCls(note)[0],L.q||4,note,vel])}
-// passo (un sedicesimo dello schema) e battuta in frame
-function drumGeo(D){const b=G.base/G.beats,spb=D.fast&&bpm()<110?8:4;return{step:b/spb,bar:16*b/spb}}
-// colpi della battuta k della frase: {r riga, j sedicesimo, v forza}; fr = da dove comincia la rullata (16 = niente)
-function barNotes(D,k){const rows=Object.assign({},D.A),over=k===1?D.B:k===3?D.F:null;let fr=16;
- if(over)for(const r in over){const a=rows[r]||"................";rows[r]=[...over[r]].map((c,j)=>c==="-"?a[j]:c).join("");
-  if(k===3){const j=[...over[r]].findIndex(c=>c!=="-");if(j>=0&&j<fr)fr=j}}
- const out=[];for(const r in rows)[...rows[r]].forEach((c,j)=>{if(c!==".")out.push({r,j,v:c==="X"?1:+c/9})});
- if(k===0&&D.crash)out.push({r:"Y",j:0,v:.75});
- return{out,fr}}
-const swingAt=(D,j)=>j+(j%4===2?(D.sw?.[0]||0):j%2?(D.sw?.[1]||0):0);
-// mette i colpi nel buffer (posizione t in frame dalla griglia, off = indice del buffer dove cade l'1); l'aperto si chiude
-// col charleston chiuso dopo, come suonando dal vivo (voice in sampler.js)
+// attacchi nell'audio di un loop (x; off = indice dove cade l'1): [{t dall'1, s forza 0…1, low quota sotto i ~120 Hz}].
+// Energia a blocchi di 256 campioni: un attacco è una salita di almeno 6 dB sui 3 blocchi prima, non più di 30 dB sotto
+// il massimo del loop, la più alta nel giro di ±6 blocchi; l'istante è il primo campione oltre metà del picco
+function beatOnsets(x,off){const H=256,K=Math.floor(x.length/H),len=x.length;if(K<16)return[];
+ const a=1-Math.exp(-2*Math.PI*120/sr),D=new Float32Array(K),Lo=new Float32Array(K);let y1=0,y2=0;
+ for(let p=Math.max(0,len-4096);p<len;p++){y1+=a*(x[p]-y1);y2+=a*(y1-y2)} // il loop gira: il filtro parte dalla coda
+ for(let k=0;k<K;k++){let f=0,l=0;for(let p=k*H;p<k*H+H;p++){const v=x[p];y1+=a*(v-y1);y2+=a*(y1-y2);f+=v*v;l+=y2*y2}
+  D[k]=10*Math.log10(f/H+1e-10);Lo[k]=l/(f+1e-12)}
+ let top=-100;for(const d of D)top=Math.max(top,d);
+ const at=k=>D[(k+K)%K],o=new Float32Array(K),out=[];
+ for(let k=0;k<K;k++)o[k]=Math.max(at(k),at(k+1))-Math.max(at(k-1),at(k-2),at(k-3));
+ for(let k=0;k<K;k++){const r=o[k],lvl=Math.max(at(k),at(k+1));if(r<6||lvl<top-30)continue;
+  let peak=true;for(let j=1;j<=6&&peak;j++)if(o[(k+j)%K]>r||o[(k-j+K)%K]>=r)peak=false;if(!peak)continue;
+  let m=0;for(let p=k*H;p<Math.min(len,k*H+2*H);p++)m=Math.max(m,Math.abs(x[p]));
+  let p0=k*H;while(p0<k*H+H-1&&Math.abs(x[p0])<m*.5)p0++;
+  out.push({t:((p0-off)%len+len)%len,s:Math.min(1,(r-3)/20)*Math.min(1,(lvl-top+30)/30),low:Math.min(1,Lo[(k+1)%K])})}
+ return out}
+// la griglia che spiega meglio gli attacchi dentro il giro: k passi per giro, battito = g passi. Fra le griglie che spiegano
+// almeno il 90% di quanto la migliore, prima quelle del tempo del giro (ottavi, terzine, sedicesimi, sestine), se no la
+// più larga; il battito è quello del giro se ci cadono gli attacchi, se no il più lungo che li raccoglie (es. 3 battiti)
+function beatGrid(ons){const P=G.base,sig=sr*.012;let tot=0;for(const o of ons)tot+=o.s;
+ const on=(t,st)=>{const d=(t%P)/st;return Math.exp(-.5*(((d-Math.round(d))*st)/sig)**2)};
+ const fit=k=>{let f=0;for(const o of ons)f+=o.s*on(o.t,P/k);return tot?f/tot:0};
+ const lo=Math.max(1,Math.ceil(P/(sr*.4))),hi=Math.max(lo,Math.floor(P/(sr*.085))),F={};let best=0;
+ for(let k=lo;k<=hi;k++){F[k]=fit(k);best=Math.max(best,F[k])}
+ const ok=k=>k>=lo&&k<=hi&&F[k]>=.9*best;
+ let k=best<.3?null:[2,3,4,6].map(m=>G.beats*m).find(ok);
+ if(!k&&best>=.3)for(let j=lo;j<=hi;j++)if(ok(j)){k=j;break}
+ if(!k){k=G.beats*4;while(k>hi&&k%2===0)k/=2;while(k<lo)k*=2}
+ // frac: quanta forza cade sui battiti · cov: quanti battiti hanno un attacco (le terzine piene hanno cov 1 e frac basso)
+ const st=P/k,frac=g=>{let f=0;for(const o of ons)f+=o.s*on(o.t,st*g);return tot?f/tot:1};
+ const cov=g=>{const n=Math.round(k/g);let c=0;for(let b=0;b<n;b++)if(ons.some(o=>{const d=((o.t-b*st*g)%P+P)%P;return d<sr*.03||P-d<sr*.03}))c++;return c/n};
+ const gs=[1,2,3,4,6,8].filter(g=>k%g===0&&st*g>=sr*.3&&st*g<=sr*1.2),g0=k%G.beats===0?k/G.beats:0;let g=g0;
+ if(!gs.includes(g0)||!(cov(g0)>=.75||frac(g0)>=.85*Math.max(...gs.map(frac))))
+  g=gs.length?gs.reduce((a,b)=>{const ca=cov(a),cb=cov(b);return cb>ca+1e-9||(Math.abs(cb-ca)<1e-9&&Math.abs(st*b-sr*.5)<Math.abs(st*a-sr*.5))?b:a}):(g0||1);
+ return{step:st,g,beat:st*g,beats:Math.round(k/g)}}
+// la batteria della quantità lv su T frame, dagli attacchi ons (t da 0 a T): [{t,note,v}] e dove comincia la rullata
+function drumPlan(lv,T,ons){const P=G.base,{step,g,beat,beats}=beatGrid(ons),N=[],fill=lv>=5?T-beat:T;
+ // gli attacchi letti dall'audio arrivano qualche ms dopo la nota: entro 15 ms dalla griglia ci vanno sopra, gli altri
+ // (le tempistiche strane di chi suona) restano dove sono
+ ons=ons.map(o=>{const d=Math.round(o.t/step);return Math.abs(o.t-d*step)<sr*.015?{...o,t:d*step}:o});
+ const near=(t,arr,d)=>arr.some(u=>Math.abs(u.t-t)<d),onBeat=t=>{const d=t/beat;return Math.abs(d-Math.round(d))*beat<sr*.03};
+ const ks=[];
+ for(let s0=0;s0<T-1;s0+=P){ // ogni giro: cassa e rullante sugli attacchi più forti
+  const seg=ons.filter(o=>o.t>=s0&&o.t<s0+P&&o.t<fill).map(o=>({...o,w:o.s*(1+o.low)*(onBeat(o.t)?1.25:1)})).sort((a,b)=>b.w-a.w);
+  const n=Math.max(2,Math.round(beats*[.5,.75,1,1,1][lv-1])),gap=Math.max(1.5*step,sr*.12),pick=[{t:s0,low:1,w:9}];
+  for(const o of seg){if(pick.length>=n)break;if(!near(o.t,pick,gap))pick.push(o)}
+  // pochi attacchi (un tappeto): i battiti, prima quello a metà giro
+  const half=Math.round(beats/2);for(const b of[half,...Array.from({length:beats},(_,j)=>j)]){if(pick.length>=n)break;const t=s0+b*beat;
+   if(b>0&&t<fill&&t<s0+P-sr*.05&&!near(t,pick,gap))pick.push({t,low:0,w:0})}
+  pick.sort((a,b)=>a.t-b.t);let prev=null;
+  for(const o of pick){o.r=!prev?DK:o.low>=.35?DK:prev===DK?DS:DK;prev=o.r}
+  if(pick.length>1&&!pick.some(o=>o.r===DS)){const o=pick.slice(1).sort((a,b)=>b.w-a.w)[0];o.r=DS}
+  for(const o of pick){if(o.t>=fill)continue;N.push({t:o.t,note:o.r,v:o.r===DS?.95:onBeat(o.t)?1:.85});ks.push(o)}
+  if(lv>=4){let c=0;for(const o of seg){if(c>=beats)break;if(!near(o.t,ks,step*.75)){N.push({t:o.t,note:DS,v:.3});ks.push(o);c++}}}}
+ if(lv>=2){const hs=lv===2?beat:lv===3?(g%2===0?beat/2:step):(step>=sr*.1?step:2*step),hv=lv>=4?[.6,.4]:[.55,.38];
+  const last=Math.floor((Math.min(fill,T)-1)/hs);
+  for(let j=0;j<=last;j++){const t=j*hs;N.push({t,note:lv>=4&&j===last&&!onBeat(t)?DO:DH,v:onBeat(t)?hv[0]:hv[1]})}}
+ if(lv>=5){const n=Math.max(2,Math.round(beat/step));for(let j=0;j<n;j++)N.push({t:fill+j*step,note:DS,v:.5+.5*j/Math.max(1,n-1)});
+  N.push({t:fill,note:DK,v:.9},{t:0,note:DY,v:.75})}
+ return{notes:N,fill}}
+// mette i colpi nel buffer (posizione t in frame dall'1, off = indice del buffer dove cade l'1); l'aperto si chiude col
+// charleston chiuso dopo, come suonando dal vivo (voice in sampler.js)
 function drumMix(si,notes,len,off){const data=new Float32Array(len),fd=Math.round(sr*.01);notes.sort((a,b)=>a.t-b.t);
  notes.forEach((n,x)=>{let seg=renderNote(si,n.note,n.v,sr*.1);if(!seg)return;
   if(n.note%12===10){const nx=notes.find((m,y)=>y>x&&m.t>n.t&&(m.note%12===6||m.note%12===8));
    if(nx){const cut=Math.round(nx.t-n.t);if(cut<seg.length){seg=seg.slice(0,Math.min(seg.length,cut+fd));for(let k=0;cut+k<seg.length;k++)seg[cut+k]*=1-k/fd}}}
   let p=((Math.round(n.t+off))%len+len)%len;for(let k=0;k<seg.length;k++){data[p]+=seg[k];if(++p===len)p=0}});
  return data}
-// batterista: la frase intera del genere, lunga 4 battute (o più giri, se il giro è più lungo), dall'1 della griglia
-function batRender(g,si){const D=DRUMS[g-1],{step,bar}=drumGeo(D),len=G.base*Math.max(1,Math.ceil(4*bar/G.base-1e-9)),notes=[];
- for(let j=0;j*bar<len-1;j++){const{out}=barNotes(D,j%4);for(const n of out)notes.push({t:j*bar+swingAt(D,n.j)*step,note:48+DRUM_ROW[n.r],v:n.v})}
- return drumMix(si,notes,Math.round(len),0)}
-// correttore: la batteria suonata (org, il suo audio) ripetuta fino a 4 battute, più quello che manca. Nella rullata
-// la parte suonata tace (con 5 ms di dissolvenza), come farebbe un batterista
-function fixRender(i,g,org){const L=G.loops[i],D=DRUMS[g-1],{step,bar}=drumGeo(D),L0=org.length,beat=G.base/G.beats;
- const off=((G.origin-L.t0)%L0+L0)%L0,len=L0*Math.max(1,Math.ceil(4*bar/L0-1e-9)),U=[],has=new Set();
- for(const h of L.mx.h){const note=h[3]??(h[1]==="k"?48:h[1]==="s"?50:54);U.push({t:((h[0]-off)%L0+L0)%L0,note});has.add(drumCls(note))}
- // terzine: più colpi a 1/3 e 2/3 del battito che a 1/4, 1/2, 3/4. Allora i sedicesimi dello schema vanno a 0, 1/3, 2/3
- // del battito (l'ultimo sedicesimo del battito si salta)
- let tri=0,str=0;for(const u of U){const f=(u.t/beat)%1;if(Math.min(Math.abs(f-1/3),Math.abs(f-2/3))<.07)tri++;else if([.25,.5,.75].some(x=>Math.abs(f-x)<.07))str++}
- const trip=tri>=2&&tri>str,pos=j=>{if(!trip)return swingAt(D,j);const k=j%4;return k===3?null:j-k+[0,4/3,8/3][k]};
- const data=new Float32Array(len);for(let p=0;p<len;p++)data[p]=org[p%L0];
- const add=[],fd=Math.round(sr*.005),at=t=>((Math.round(t+off)%len)+len)%len;
- for(let j=0;j*bar<len-1;j++){const{out,fr}=barNotes(D,j%4),b0=j*bar,fill=b0+fr*step-step/2;
-  if(fr<16){const a=Math.round(fill),z=Math.round(b0+bar);for(let t=a-fd;t<z;t++){const w=t<a?(a-t)/fd:t>=z-fd?(t-z+fd+1)/fd:0;data[at(t)]*=w}}
-  for(const n of out){const sj=pos(n.j);if(sj==null)continue;const t=b0+sj*step,c=drumCls(DRUM_ROW[n.r]);
-   const ghost=c==="s"&&n.v<.45&&!U.some(u=>drumCls(u.note)==="s"&&Math.abs((u.t%L0)-(t%L0))<step*.75);
-   if(t>=fill||!has.has(c)||ghost||c==="y")add.push({t,note:48+DRUM_ROW[n.r],v:n.v})}}
- const extra=drumMix(L.sound,add,len,off);for(let p=0;p<len;p++)data[p]+=extra[p];
+// attacchi letti dai loop: si chiede al core l'audio dei loop cambiati (dump con only e tag "beat", onBeatDump).
+// Dice se sono tutti aggiornati
+const BO=[];
+function beatScan(){const now=performance.now();let fresh=true;
+ G.loops.forEach((L,i)=>{if(!L.has||isDrum(i)){BO[i]=null;L.bq=null;return}const b=BO[i];
+  if(b&&b.ver===L.ver&&b.len===L.len&&b.t0===L.t0&&b.o===G.origin)return;fresh=false;
+  if(L.state==="rec"||L.state==="closing"||L.state==="dub"||(L.bq&&now-L.bq.t<3000))return;
+  L.bq={ver:L.ver,t:now};send({type:"dump",all:true,exp:true,only:i,tag:"beat"})});
+ return fresh}
+function onBeatDump(items){for(const it of items){const L=G.loops[it.i],q=L.bq;L.bq=null;if(!L.has||!q||it.len!==L.len)continue;
+ const off=((G.origin-L.t0)%it.len+it.len)%it.len;BO[it.i]={ver:q.ver,len:it.len,t0:L.t0,o:G.origin,ons:beatOnsets(it.data,off)}}}
+// la batteria si rifà solo se cambiano gli attacchi (non per la coda delle note che finisce di entrare nel loop)
+const beatKey=()=>BO.map(b=>b?b.len+":"+b.ons.map(o=>Math.round(o.t/256)).join():"").join("|");
+// durata della batteria: il loop più lungo (anche quello suonato, own), raddoppiato finché non dura ~6 s (fino a 4 volte)
+function drumSpan(own){let m=Math.max(G.base,own||0);G.loops.forEach((L,i)=>{if(L.has&&!isDrum(i))m=Math.max(m,L.len)});
+ let T=m;while(T<6*sr&&T<4*m)T*=2;if(own)T=Math.ceil(T/own)*own;return Math.round(T)}
+// gli attacchi dei loop che non sono batterie, ripetuti su T
+function drumOns(T){const out=[];G.loops.forEach((L,i)=>{const b=BO[i];if(!L.has||isDrum(i)||!b)return;
+ for(let r=0;r<T;r+=b.len)for(const o of b.ons)if(r+o.t<T)out.push({...o,t:r+o.t})});return out}
+// batterista: dall'1 della griglia
+function batRender(lv,si,T){return drumMix(si,drumPlan(lv,T,drumOns(T)).notes,T,0)}
+// correttore: la batteria suonata (org, il suo audio) ripetuta su T, più quello che manca. Nella rullata la parte suonata
+// tace (con 5 ms di dissolvenza), come farebbe un batterista
+function fixRender(i,lv,org){const L=G.loops[i],L0=org.length,off=((G.origin-L.t0)%L0+L0)%L0,T=drumSpan(L0),offT=((G.origin-L.t0)%T+T)%T;
+ const U=L.mx.h.map(h=>{const note=h[3]??(h[1]==="k"?DK:h[1]==="s"?DS:DH);return{t:((h[0]-off)%L0+L0)%L0,note,s:h[4]??.8,low:drumCls(note)==="k"?1:0}});
+ const has=new Set(U.map(u=>drumCls(u.note))),own=[];for(let r=0;r<T;r+=L0)for(const u of U)if(r+u.t<T)own.push({...u,t:r+u.t});
+ const{notes,fill}=drumPlan(lv,T,drumOns(T).concat(own)),step=sr*.06;
+ const data=new Float32Array(T);for(let p=0;p<T;p++)data[p]=org[p%L0];
+ const fd=Math.round(sr*.005),at=t=>((Math.round(t+offT)%T)+T)%T,a=Math.round(fill-sr*.02);
+ if(fill<T)for(let t=a-fd;t<T;t++)data[at(t)]*=t<a?(a-t)/fd:0;
+ const add=notes.filter(n=>{const c=drumCls(n.note);if(n.t>=a||c==="y"||!has.has(c))return true;
+  return c==="s"&&n.v<.45&&!own.some(u=>drumCls(u.note)==="s"&&Math.abs(u.t-n.t)<step)});
+ const extra=drumMix(L.sound,add,T,offT);for(let p=0;p<T;p++)data[p]+=extra[p];
  return data}
-// la batteria nuova entra sull'1 della prossima battuta (4 battiti), con la dissolvenza dello swap finita prima
-function drumAt(){const bar=4*G.base/G.beats,f=nowF();return Math.round(G.origin+Math.ceil((f+sr*.05-G.origin)/bar)*bar-sr*.008)}
-const geOn=[];let batWant=null,drumMsg=0;
-function setGE(i,on){on=on&&!!loopOut[i];if(on===!!geOn[i])return;geOn[i]=on;if(on)loopOut[i].connect(GE.in);else loopOut[i].disconnect(GE.in)}
-function batMake(j,g){const L=G.loops[j],si=drumKit(),data=batRender(g,si),len=data.length;
+// la batteria nuova entra sull'1 del prossimo giro, con la dissolvenza dello swap finita prima
+function drumAt(){const f=nowF();return Math.round(G.origin+Math.ceil((f+sr*.05-G.origin)/G.base)*G.base-sr*.008)}
+let batWant=null,drumMsg=0;
+function batMake(j,lv){const L=G.loops[j],si=drumKit(),data=batRender(lv,si,drumSpan()),len=data.length;
  Object.assign(L,{state:"play",has:true,muted:false,pend:null,dropped:false,sound:si,len,t0:G.origin,first:false,peaks:null,
-  mx:{w:{[SOUNDS[si].id]:1},lo:null,kick:true,h:[]},ar:null,pm:false,pan:0,shp:0,swid:0,bat:g,dk:[g,si,G.base,G.beats,bpm()<110].join(),fixed:false});
+  mx:{w:{[SOUNDS[si].id]:1},lo:null,kick:true,h:[]},ar:null,pm:false,pan:0,shp:0,swid:0,bat:lv,dk:[lv,si,G.base,len,beatKey()].join(),fixed:false});
  send({type:"load",i:j,data,len,t0:G.origin,vol:L.vol,pan:0,fx:L.fx},[data.buffer]);
  send({type:"gate",i:j,on:G.running?1:0,frame:G.running?drumAt()+Math.round(sr*.008):nowF()});
- flashHint(`Batterista: <b>${DRUMS[g-1].name}</b> nel loop ${j+1}, kit ${SOUNDS[si].name}. Manopola 4 tutta a sinistra per toglierlo.`);render()}
-// manopola 4 tutta a sinistra: il batterista se ne va (le batterie suonate tornano come erano da drumSync)
-function batDrop(scope){G.loops.forEach((L,j)=>{if(!L.bat||!L.has)return;const own=LDJ[j]&&genOf(LDJ[j].v[3]);
- if(scope==="mix"?!own:j===G.sel&&!genOf(DJV[3])){clearLoop(j);L.bat=0;flashHint(`Batterista tolto dal loop ${j+1}. ◀ lo riporta indietro.`)}})}
-// gira in tick: crea il batterista, rifà le batterie quando cambiano genere, kit, tempo o note (aspetta che la manopola
-// si fermi: girandola si attraversano gli altri generi)
-function drumSync(){if(!ready)return;const gm=G.base?genOf(DJV[3]):0,now=performance.now();
- const want=i=>{const D=LDJ[i];return G.base?(D&&genOf(D.v[3]))||gm:0},calm=(o,key)=>{if(!o.dw||o.dw.key!==key){o.dw={key,t:now};return false}return now-o.dw.t>150};
- if(gm&&!G.loops.some((L,i)=>isDrum(i)||L.state==="rec"||L.state==="closing")){const w=batWant||(batWant={});
-  if(calm(w,gm)){const j=G.loops.findIndex(L=>L.state==="empty"),si=drumKit();
+ flashHint(`Batterista (<b>${DRUM_LV[lv-1]}</b>) nel loop ${j+1}, kit ${SOUNDS[si].name}: segue i tuoi loop.`);render()}
+let drumLv=0; // quantità: 0 = spenta
+function drumSet(v){drumLv=lvOf(v/127);if(!drumLv)G.loops.forEach((L,j)=>{if(L.bat&&L.has){clearLoop(j);L.bat=0;flashHint(`Batterista tolto dal loop ${j+1}. ◀ lo riporta indietro.`)}});drumSync()}
+function drumText(){if(!drumLv)return "spento";const n=DRUM_LV[drumLv-1];if(!G.base)return n+" · prima registra un giro";
+ const fix=L=>L.mx?.h?.length?n+" · corregge la tua batteria":n+" · batteria senza note: suonala di nuovo";
+ const u=G.loops.find((L,j)=>isDrum(j)&&!L.bat),b=G.loops.findIndex(L=>L.has&&L.bat);
+ return u?fix(u):b>=0?n+` · batterista nel loop ${b+1}`:n+" · batterista"}
+// gira in tick: legge i loop, crea il batterista, rifà le batterie quando cambiano quantità, kit o loop (aspetta che la
+// quantità si fermi)
+function drumSync(){if(!ready)return;const lm=G.base?drumLv:0,now=performance.now();
+ const want=i=>lm,calm=(o,key)=>{if(!o.dw||o.dw.key!==key){o.dw={key,t:now};return false}return now-o.dw.t>150};
+ const fresh=G.base&&G.loops.some((L,i)=>want(i))?beatScan():false;
+ if(lm&&!G.loops.some((L,i)=>isDrum(i)||L.state==="rec"||L.state==="closing")){const w=batWant||(batWant={});
+  if(calm(w,lm)&&fresh){const j=G.loops.findIndex(L=>L.state==="empty"),si=drumKit();
    if(j<0){if(now-drumMsg>4000){drumMsg=now;flashHint("Batteria: nessun loop libero. Cancella un loop per far entrare il batterista.")}}
-   else if(!BUF[SOUNDS[si].id])loadSound(si);else{batWant=null;batMake(j,gm)}}}else batWant=null;
+   else if(!BUF[SOUNDS[si].id])loadSound(si);else{batWant=null;batMake(j,lm)}}}else batWant=null;
  G.loops.forEach((L,i)=>{
-  if(!L.has){L.bat=0;L.fixed=false;L.dk="";L.org=null;L.orgReq=false;setGE(i,false);return}
-  if(!isDrum(i)){setGE(i,false);return}
+  if(!L.has){L.bat=0;L.fixed=false;L.dk="";L.org=null;L.orgReq=false;return}
+  if(!isDrum(i))return;
   const g=want(i);
-  if(L.bat){setGE(i,L.bat===DUB+1);if(!g)return;const si=drumKit(),key=[g,si,G.base,G.beats,bpm()<110].join();
+  if(L.bat){if(!g||!fresh)return;const si=drumKit(),T=drumSpan(),key=[g,si,G.base,T,beatKey()].join();
    if(key===L.dk||!calm(L,key))return;if(!BUF[SOUNDS[si].id]){loadSound(si);return}
-   L.dk=key;L.bat=g;L.sound=si;L.mx.w={[SOUNDS[si].id]:1};send({type:"swap",i,data:batRender(g,si),frame:drumAt()});return}
-  setGE(i,!!g&&g===DUB+1&&L.fixed);
+   L.dk=key;L.bat=g;L.sound=si;L.mx.w={[SOUNDS[si].id]:1};send({type:"swap",i,data:batRender(g,si,T),frame:drumAt()});return}
   if(!g){if(L.fixed&&calm(L,"")){L.fixed=false;L.dk="";L.org=null;send({type:"swap",i,data:null,frame:drumAt()})}return}
-  if(!L.mx?.h?.length||L.state!=="play")return;
-  const key=[g,L.sound,G.base,G.beats,bpm()<110,L.mx.h.length].join();if(key===L.dk||!calm(L,key))return;
+  if(!L.mx?.h?.length||L.state!=="play"||!fresh)return;
+  const key=[g,L.sound,G.base,beatKey(),L.mx.h.length].join();if(key===L.dk||!calm(L,key))return;
   if(!BUF[SOUNDS[L.sound].id]){loadSound(L.sound);return}
-  // la parte suonata: la prima volta si chiede al core (onDump), poi resta qui per i cambi di genere
+  // la parte suonata: la prima volta si chiede al core (onDump), poi resta qui per i cambi di quantità
   if(!L.org){if(!L.orgReq){L.orgReq=true;send({type:"dump",all:true,exp:true,only:i,tag:"fix"})}return}
   const data=fixRender(i,g,L.org);L.fixed=true;L.dk=key;send({type:"swap",i,data,keep:true,frame:drumAt()})})}
 // la parte suonata di una batteria da correggere (vedi drumSync)
@@ -745,6 +862,7 @@ function noteOn(note,vel){if(!ready)return;
   ev={i,kind:ti>=0?"rec":"dub",note,vel,sound:SET.sound,q:L.q,on:nowF(),off:null,comp:L.first&&ti>=0?0:latencyFrames()};G.ev.push(ev)}
  // nota annotata: il suono dal vivo non va al looper, nel loop entra la versione a tempo; altrimenti va sul bus registrato
  if(ev)ev.lv=DJV[7]; // il volume della tastiera vale anche per la nota rimessa a tempo nel loop
+ if(i>=0)dbgNote(i,note,ev,ti>=0&&G.loops[ti].first);
  if(i>=0){mxNote(G.loops[i],SOUNDS[SET.sound],note);if(SOUNDS[SET.sound].drum)hitNote(G.loops[i],ti>=0,note,vel)}
  held.set(note,{v:voice(SET.sound,note,vel,nowT(),ev?masterIn:liveBus[G.cur],DJV[7]),sus:false,ev});uiNote(note,true)}
 let sustain=false;
@@ -810,7 +928,7 @@ let knobMode="vol",hcMode="midi";
 function setKnobMode(m){knobMode=m;render();
  flashHint({vol:"Manopole: <b>VOLUME</b> dei loop.",pan:"Manopole: <b>PAN</b> — gira per spostare il loop a sinistra o a destra.",
   fx:"Manopole: <b>FILTRO</b> — a sinistra il loop si scurisce, a destra si alleggerisce, al centro niente.",
-  dj:"Manopole: <b>EFFETTI DJ</b> sul mix — 1 filtro · 2 eco · 3 riverbero · 4 genere · 5 crusher · 6 wobble · 7 roll · 8 tastiera."}[m])}
+  dj:"Manopole: <b>EFFETTI DJ</b> sul mix — 1 filtro · 2 eco · 3 riverbero · 4 rallenta · 5 crusher · 6 wobble · 7 roll · 8 tastiera."}[m])}
 function cycleKnobMode(){setKnobMode(KNOB_MODES[(KNOB_MODES.indexOf(knobMode)+1)%KNOB_MODES.length])}
 function hcModeButton(cc){
  if(cc===58){hcMode=hcMode==="vol"?"pan":"vol";setKnobMode(hcMode)}
@@ -833,11 +951,11 @@ const knobKey=()=>knobMode==="dj"?"dj"+fxScope+(fxScope==="loop"?G.sel:""):knobM
 function knobTarget(i){const L=G.loops[i];
  if(knobMode==="vol")return L.vol*127;if(knobMode==="pan")return L.pan*63+64;if(knobMode==="fx")return L.fx*63+64;
  if(fxScope==="loop"&&i===7)return G.loops[G.sel].vol*127;
- const a=djView().v[i];return i===0?a*63+64:a*127}
+ const a=djView().v[i];return i===0||i===3?a*63+64:a*127}
 function knobIn(i,v){if(!ready)return;const key=knobKey(),t=knobTarget(i),S=knobSet[i],p=knobLast[i];knobLast[i]=v;
  const caught=S&&S.key===key&&Math.abs(S.v-t)<=3;
  if(!caught&&Math.abs(v-t)>3&&!(p!=null&&(p-t)*(v-t)<=0)){
-  const pct=knobMode==="vol"||knobMode==="dj"&&i>0,where=pct?Math.round(t/127*100)+"%":Math.abs(t-64)<3?"metà":Math.round(Math.abs(t-64)/63*100)+"% a "+(t<64?"sinistra":"destra");
+  const pct=knobMode==="vol"||knobMode==="dj"&&i>0&&i!==3,where=pct?Math.round(t/127*100)+"%":Math.abs(t-64)<3?"metà":Math.round(Math.abs(t-64)/63*100)+"% a "+(t<64?"sinistra":"destra");
   flashHint(`Manopola ${i+1}${knobMode==="dj"?" "+DJ_NAMES[i]:""}: girala ${v<t?"a destra":"a sinistra"} fino a <b>${where}</b> per agganciarla.`);return}
  knobSet[i]={key,v};knob(i,v)}
 // HyperControl (canale 16): stessi comandi del modo MIDI con altri numeri
@@ -872,9 +990,10 @@ function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;
 // tasti delle note: nessuna di queste lettere può essere un comando (i comandi sono controllati prima)
 const KEYMAP="awsedftgyhujkolp;'";const pcHeld=new Map();
 addEventListener("keydown",e=>atEvent(e,()=>{
+ if(e.ctrlKey&&e.shiftKey&&e.code==="KeyD"){e.preventDefault();if(!away&&ready&&!e.repeat)dbgExport();return}
  if(away)return;
  if(!$("#gate").hidden){e.preventDefault();start();return}
- if(!$("#settings").hidden){if(e.key==="Escape")closeSettings();return}
+ if(!$("#settings").hidden||!$("#help").hidden){if(e.key==="Escape")closeSettings();return}
  if(e.target.matches("input,select")||e.ctrlKey||e.metaKey||e.altKey)return;
  const k=e.key.toLowerCase();
  if(e.code==="Space"){e.preventDefault();if(!e.repeat){(G.running?stopButton:playButton)();stopPress()}return}

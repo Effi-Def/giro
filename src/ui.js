@@ -1,6 +1,5 @@
 // ---------- Interfaccia ----------
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
-const RC=2*Math.PI*54;
 const ORDER=[4,5,6,7,0,1,2,3]; // come i pad dell'Axiom: 5–8 sopra, 1–4 sotto
 const START_HINT="Premi un pad e suona: il primo loop parte dalla prima nota. Ripremi lo stesso pad nel punto in cui deve ricominciare.";
 
@@ -13,24 +12,18 @@ function loopColor(i){const L=G.loops[i];
  if(L.state==="armed")return"arm";if(L.state==="rec"||L.state==="closing")return"rec";if(L.state==="dub")return"dub";
  if(L.state==="play")return(L.muted||!G.running)?"off":"play";return"empty"}
 
-let tipsShown=null; // consigli già disegnati: si ridisegnano solo se cambiano
+let tipsShown=null,soundShown=null; // consigli già disegnati: si ridisegnano solo se cambiano; ultimo suono portato in vista
 function buildSounds(){
  const cats=[...new Set(SOUNDS.map(s=>s.cat))];
- $("#sounds").innerHTML=cats.map(c=>`<div class="cat"><span class="catn">${c}</span><div class="tiles">${
+ $("#sounds").innerHTML=cats.map(c=>`<div class="cat" data-cat="${c}"><span class="catn">${c}</span><div class="tiles">${
   SOUNDS.map((s,i)=>s.cat===c?`<button class="snd" data-s="${i}">${s.name}</button>`:"").join("")}</div></div>`).join("");
  $$("#sounds .snd").forEach(b=>b.onclick=()=>setSound(+b.dataset.s))}
 function build(){
  $("#grid").innerHTML=ORDER.map(i=>`
   <button class="loop" data-loop="${i}" aria-label="Loop ${i+1}">
-   <svg viewBox="0 0 120 120" aria-hidden="true">
-    <circle class="rbg" cx="60" cy="60" r="54"/>
-    <path class="wave" d=""/>
-    <circle class="rprog" cx="60" cy="60" r="54" stroke-dasharray="${RC}" stroke-dashoffset="${RC}"/>
-    <text class="num" x="60" y="57">${i+1}</text>
-    <text class="st" x="60" y="77"></text>
-    <text class="snm" x="60" y="40"></text>
-   </svg>
-   <span class="vol"><i></i></span>
+   <span class="lh"><span class="num">${i+1}</span><span class="st"></span></span>
+   <span class="snm"></span>
+   <span class="wv"><svg viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true"><path class="wave" d=""/></svg><i class="rprog"></i></span>
   </button>`).join("");
  $$(".loop").forEach(b=>{const i=+b.dataset.loop;
   b.addEventListener("pointerdown",e=>{e.preventDefault();atEvent(e,()=>padDown(i))});
@@ -45,19 +38,22 @@ function build(){
  pb.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();(G.running?stopButton:playButton)()}});
  const db=$("#dropBtn");db.addEventListener("pointerdown",e=>{e.preventDefault();playDown(true)});
  ["pointerup","pointerleave","pointercancel"].forEach(ev=>db.addEventListener(ev,playUp));
- $("#knobBtn").onclick=cycleKnobMode;
- $("#djBar").innerHTML=DJ_NAMES.map((n,i)=>`<div class="dj${i===0?" c":""}"><span><b>${i+1}</b> ${n}</span><i><u></u></i><small></small></div>`).join("");
+ $("#knobBtn").innerHTML=["vol","pan","dj","fx"].map(m=>`<button data-m="${m}">${{dj:"EFFETTI",fx:"FILTRO"}[m]||KNOB_NAMES[m]}</button>`).join("");
+ $$("#knobBtn button").forEach(b=>b.onclick=()=>setKnobMode(b.dataset.m));
+ $("#djBar").innerHTML=DJ_NAMES.map(()=>`<div class="dj"><span></span><i><u></u></i><small></small></div>`).join("");
  $("#fxScopeBtn").onclick=toggleFxScope;$("#fxStopBtn").onclick=stopAllFx;
  $("#tel").onclick=telQR;$("#telQR").onclick=()=>$("#telQR").hidden=true;
  $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#perfBtn").onclick=perfToggle;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
  $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
+ $("#openHelp").onclick=()=>{$("#help").hidden=false};$("#closeHelp").onclick=closeSettings;
+ $("#help").addEventListener("pointerdown",e=>{if(e.target.id==="help")closeSettings()});
  [["#cut","cut"],["#rev","rev"],["#master","master"]].forEach(([s,k])=>{$(s).value=SET[k];$(s).oninput=e=>{SET[k]=+e.target.value;applyMix();saveSet()}});
  $("#exportBtn").onclick=()=>{closeSettings();exportWav()};$("#amixBtn").onclick=toggleAutoMix;
  $("#diagStart").onclick=()=>{diagOn=true;diagLines.clear();$("#diag").textContent="In ascolto: tocca i controlli dell'Axiom…"};
  $("#startBtn").onclick=start;$("#awayBtn").onclick=tabTake;
 }
-function closeSettings(){$("#settings").hidden=true}
+function closeSettings(){$("#settings").hidden=$("#help").hidden=true}
 function showDelay(){$("#delayVal").textContent=ctx?`${Math.round(audioDelayMs())} ms`:"—"}
 async function start(){if($("#gate").hidden)return;$("#gate").hidden=true;
  try{await initAudio();await ctx.resume()}catch(err){flashHint("L'audio non è partito: "+err.message)}
@@ -65,7 +61,7 @@ async function start(){if($("#gate").hidden)return;$("#gate").hidden=true;
  render()}
 
 let hintOverride="",hintTimer=0;
-function flashHint(t){hintOverride=t;clearTimeout(hintTimer);hintTimer=setTimeout(()=>{hintOverride="";render()},2600);render()}
+function flashHint(t,ms){hintOverride=t;clearTimeout(hintTimer);hintTimer=setTimeout(()=>{hintOverride="";render()},ms||2600);render()}
 function hint(){
  if(hintOverride)return[hintOverride,"sel"];
  const n=s=>G.loops.findIndex(L=>L.state===s);
@@ -81,26 +77,45 @@ function hint(){
  if(!anyHas())return[START_HINT,"off"];
  if(!G.running)return["Fermo. <b>▶</b> per ripartire · tieni premuto <b>■</b> per cancellare tutto.","off"];
  return["Pad: nuovo loop · ferma / riparti sull'1 · <b>●</b> sovraincidi (pitch bend sceglie il loop) · <b>▶</b> break, tenuto salita e DROP · <b>■</b> fine a tempo.","play"]}
+// velocità non normale: la manopola resta girata senza accorgersene, e i loop sono fuori tempo e stonati rispetto alle note.
+// Sta accanto alla riga dei suggerimenti, così non ne toglie mai uno.
+function speedNote(){const m=DJV[3],ls=G.loops.map((_,i)=>i).filter(i=>LDJ[i]&&LDJ[i].v[3]!==0),al=a=>"AL "+Math.round((1+a)*100)+"%";
+ if(!m&&!ls.length)return G.running&&G.loops.some(L=>L.rb)?"<b>VELOCITÀ NORMALE</b> · torno a tempo sull'1":"";
+ const one=ls.length===1?ls[0]:-1,a=m||LDJ[one]?.v[3]||0,alone=!m||!ls.length;
+ const what=m?(a<-.97?"LOOP FERMI":"LOOP "+al(a))+(ls.length?" (LOOP "+ls.map(i=>i+1).join(", ")+" A PARTE)":""):
+  one>=0?`LOOP ${one+1} `+(a<-.97?"FERMO":al(a)):"LOOP "+ls.map(i=>i+1).join(", ")+" A VELOCITÀ DIVERSA";
+ const how=alone&&a===1?"un'ottava sopra, a tempo dall'1":alone&&a===-.5?"un'ottava sotto, a tempo dall'1":"fuori tempo e stonati";
+ // la manopola 4 arriva a quella velocità solo se comanda lei, altrimenti resta STOP EFFETTI
+ const dj=knobMode==="dj",other=!m&&one>=0&&dj&&fxScope==="loop"&&G.sel!==one,knob4=dj&&(m?!ls.length&&fxScope==="mix":one>=0&&fxScope==="loop"&&G.sel===one);
+ return`<b>${what}</b> ${how} · per tornare normale: ${knob4?"manopola 4 al centro":other?`seleziona il loop ${one+1}, poi manopola 4 al centro`:"tasto 0, STOP EFFETTI"}`}
+// sul pad: la velocità di quel loop, che non si vede più nella striscia appena ne selezioni un altro
+function padFx(i){const D=LDJ[i],a=D?D.v[3]:0;return a?" · "+(a<-.97?"FERMO":Math.round((1+a)*100)+"%"):fxActive(D)?" · FX":""}
+// una manopola sulla striscia: etichetta, valore (da sinistra, o dal centro con c), testo, se è girata, se comanda un loop vuoto
+function knobCell(i){const L=G.loops[i],lab=n=>`<b>${i+1}</b> ${n}`,side=x=>x<0?"sin.":"des.";
+ if(knobMode!=="dj"){const nm=L.has||L.state==="rec"?SOUNDS[L.sound]?.name||"":"",off=!nm,name=lab(nm||"LOOP "+(i+1));
+  if(knobMode==="vol")return{lab:name,a:L.vol,txt:Math.round(L.vol*100)+"%",off};
+  if(knobMode==="pan")return{lab:name,a:L.pan,c:1,on:L.pan!==0,txt:L.pan===0?"centro":Math.round(Math.abs(L.pan)*100)+"% "+side(L.pan),off};
+  return{lab:name,a:L.fx,c:1,on:L.fx!==0,txt:L.fx===0?"spento":(L.fx<0?"scuro ":"leggero ")+Math.round(Math.abs(L.fx)*100)+"%",off}}
+ const V=djView(),a=i===7&&fxScope==="loop"?G.loops[G.sel].vol:V.v[i];
+ return{lab:lab(i===7?(fxScope==="loop"?"VOLUME":"TASTIERA"):DJ_NAMES[i]),a,c:i===0||i===3,txt:djText(i),
+  on:i===0||i===3?a!==0:i===5?V.wbK>0:i===6?V.rollK>0:i===7?a<.98:a>.02}}
 
 function render(){
  $$(".loop").forEach(b=>{const i=+b.dataset.loop,L=G.loops[i];
   b.dataset.c=loopColor(i);b.classList.toggle("sel",i===G.sel);
   b.classList.toggle("blink",L.state==="armed"||L.state==="closing"||!!L.pend);
-  b.querySelector(".st").textContent=loopLabel(i);
-  // la barretta mostra il valore del modo delle manopole: volume da sinistra, pan come segno, filtro dal centro
-  const vb=b.querySelector(".vol"),vi=vb.firstChild;vb.className="vol "+knobMode;let l=0,w=L.vol*100;
-  if(knobMode==="pan"){l=(L.pan+1)*50-4;w=8}else if(knobMode==="fx"){l=Math.min(50,50+L.fx*50);w=Math.max(1,Math.abs(L.fx)*50)}
-  vi.style.left=Math.max(0,l)+"%";vi.style.width=Math.min(w,100-Math.max(0,l))+"%"});
- $("#knobBtn").innerHTML=`MANOPOLE <b>${KNOB_NAMES[knobMode]}</b>`;
- // effetti DJ: la striscia si vede solo in quel modo; il filtro parte dal centro
- $("#djBar").hidden=$("#djCtl").hidden=knobMode!=="dj";
+  b.querySelector(".st").textContent=loopLabel(i)});
+ $$("#knobBtn button").forEach(b=>{b.classList.toggle("on",b.dataset.m===knobMode);if(b.dataset.m==="fx")b.hidden=knobMode!=="fx"});
  $("#fxScopeBtn").innerHTML=fxScope==="loop"?`EFFETTI SU <b>LOOP ${G.sel+1}</b>`:"EFFETTI SU <b>TUTTO</b>";
+ $("#fxScopeBtn").disabled=knobMode!=="dj";
  $("#fxScopeBtn").classList.toggle("on",fxScope==="loop");$("#fxStopBtn").classList.toggle("on",djAll().some(fxActive));
- const V=djView();
- [...$("#djBar").children].forEach((el,i)=>{const a=i===7&&fxScope==="loop"?G.loops[G.sel].vol:V.v[i],u=el.querySelector("u");
-  if(i===7)el.querySelector("span").innerHTML=`<b>8</b> ${fxScope==="loop"?"VOLUME":"TASTIERA"}`;
-  if(i===0){u.style.left=Math.min(50,50+a*50)+"%";u.style.width=Math.abs(a)*50+"%"}else{u.style.left="0";u.style.width=a*100+"%"}
-  el.classList.toggle("on",i===0?a!==0:i===5?V.wbK>0:i===6?V.rollK>0:i===7?a<.98:a>.02);el.querySelector("small").textContent=djText(i)});
+ // la striscia c'è sempre: mostra quello che comandano adesso le manopole
+ $("#djBar").dataset.m=knobMode;
+ [...$("#djBar").children].forEach((el,i)=>{const C=knobCell(i),u=el.querySelector("u"),s=el.querySelector("span");
+  if(el._lab!==C.lab){el._lab=C.lab;s.innerHTML=C.lab}
+  el.classList.toggle("c",!!C.c);el.classList.toggle("off",!!C.off);
+  if(C.c){u.style.left=Math.min(50,50+C.a*50)+"%";u.style.width=Math.abs(C.a)*50+"%"}else{u.style.left="0";u.style.width=C.a*100+"%"}
+  el.classList.toggle("on",!!C.on);el.querySelector("small").textContent=C.txt});
  {const T=tips(),k=T.map(t=>t.i+t.why).join();
   if(k!==tipsShown){tipsShown=k;
    $("#tips").innerHTML=`<span class="catn">Consigliati</span>`+T.map(t=>`<button class="snd tip${t.odd?" odd":""}" data-s="${t.i}">${SOUNDS[t.i].name}<small>${t.odd?"inatteso · ":""}${t.why}</small></button>`).join("");
@@ -108,25 +123,30 @@ function render(){
   $$("#tips .snd").forEach(b=>b.classList.toggle("on",+b.dataset.s===SET.sound));
   $$("#sounds .snd").forEach(b=>b.classList.toggle("tipped",T.some(t=>t.i===+b.dataset.s)))}
  $$("#sounds .snd").forEach(b=>{const i=+b.dataset.s;b.classList.toggle("on",i===SET.sound);b.classList.toggle("wait",ready&&!BUF[SOUNDS[i].id])});
- $("#drumKeys").hidden=!SOUNDS[SET.sound].drum;
- $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||"")+(fxActive(LDJ[+b.dataset.loop])?" · FX":""):""});
+ $$("#sounds .cat").forEach(c=>c.classList.toggle("cur",c.dataset.cat===SOUNDS[SET.sound].cat));
+ if(SET.sound!==soundShown){soundShown=SET.sound;const box=$("#sounds"),el=box.querySelector(".snd.on");
+  // con tanti suoni aggiunti l'elenco scorre: quello scelto dall'Axiom deve restare in vista
+  if(el&&box.scrollHeight>box.clientHeight){const r=el.getBoundingClientRect(),q=box.getBoundingClientRect();if(r.top<q.top||r.bottom>q.bottom)box.scrollTop+=r.top-q.top-(q.height-r.height)/2}}
+ {const d=!!SOUNDS[SET.sound].drum;$("#drumKeys").hidden=!d;$("#keys").hidden=d}
+ $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||"")+padFx(+b.dataset.loop):""});
  $("#amixBtn").textContent=SET.amix?"SÌ":"NO";$("#amixBtn").classList.toggle("on",!!SET.amix);
  $("#playBtn").textContent=G.stopAt?"■ SUBITO":G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
- $("#dropBtn").hidden=!G.running;$("#dropBtn").textContent=building?"▶ LASCIA: DROP":G.drop?"▶ RIENTRA":"▶ BREAK";$("#dropBtn").classList.toggle("on",G.drop||building||!!G.dropAt);
+ $("#dropBtn").disabled=!G.running;$("#dropBtn").textContent=building?"▶ LASCIA: DROP":G.drop?"▶ RIENTRA":"▶ BREAK";$("#dropBtn").classList.toggle("on",G.drop||building||!!G.dropAt);
  $("#dubBtn").textContent=G.loops[G.sel].state==="dub"?`● FINE (loop ${G.sel+1})`:`● SOVRAINCIDI ${G.sel+1}`;
  $("#dubBtn").classList.toggle("on",G.loops[G.sel].state==="dub");
  $("#info").textContent=G.base?`${Math.round(bpm())} bpm · ${G.beats/4>=1?G.beats/4+" batt.":G.beats+" mov."}`:"giro libero";
  {const m=Math.floor(perfSecs()/60),sc=Math.floor(perfSecs()%60);$("#perfBtn").textContent=perf?`■ FERMA E SALVA ${m}:${String(sc).padStart(2,"0")}`:"● REGISTRA ESIBIZIONE";$("#perfBtn").classList.toggle("on",!!perf)}
- $("#tel").hidden=!tel.on;$("#tel").textContent="📱 TELEFONO";
+ $("#tel").hidden=!tel.on;
  telPush();
  $("#qBtn").textContent=`QUANTIZZA ${QNAMES[SET.quant]}`;$("#qBtn").classList.toggle("on",SET.quant>0);
- const [h,c]=hint();$("#hint").innerHTML=h;$("#hintBox").dataset.c=c}
+ const [h,c]=hint();$("#hint").innerHTML=h;$("#hintBox").dataset.c=c;
+ const sn=speedNote();$("#speedNote").innerHTML=sn;$("#speedNote").hidden=!sn}
 
 function drawWave(i){const b=$(`.loop[data-loop="${i}"] .wave`);if(!b)return;const p=G.loops[i].peaks;
  if(!p){b.setAttribute("d","");return}
  const mx=Math.max(.05,...p);let d="";
- for(let k=0;k<p.length;k++){const a=k/p.length*2*Math.PI-Math.PI/2,r0=35,r1=r0+Math.max(.6,p[k]/mx*14);
-  d+=`M${(60+r0*Math.cos(a)).toFixed(1)} ${(60+r0*Math.sin(a)).toFixed(1)}L${(60+r1*Math.cos(a)).toFixed(1)} ${(60+r1*Math.sin(a)).toFixed(1)}`}
+ for(let k=0;k<p.length;k++){const x=((k+.5)/p.length*200).toFixed(1),h=Math.max(.6,p[k]/mx*19);
+  d+=`M${x} ${(20-h).toFixed(1)}L${x} ${(20+h).toFixed(1)}`}
  b.setAttribute("d",d)}
 
 function frame(){
@@ -135,7 +155,8 @@ function frame(){
    if(L.state==="rec"){fr=L.first?((f-L.start)/sr%4)/4:((f-L.start)/G.base)%1}
    else if(L.state==="closing")fr=(f-L.start)/L.len;
    else if(L.has&&G.running&&!L.muted&&L.len)fr=(((f-L.t0)%L.len)+L.len)%L.len/L.len;
-   r.style.strokeDashoffset=RC*(1-Math.max(0,Math.min(1,fr)))});
+   // la testina si sposta col compositore: niente ridisegno del pad a ogni fotogramma
+   const v=fr>0?((Math.min(1,fr)-1)*100).toFixed(1):"-102";if(r._v!==v){r._v=v;r.style.transform=`translateX(${v}%)`}});
   const rec=G.loops.find(L=>L.state==="rec"&&L.first);
   $("#clock").textContent=rec?((f-rec.start)/sr).toFixed(1)+" s":"";
   beat(f)}
@@ -150,6 +171,6 @@ function beat(f){const el=$("#beat");const n=G.base?Math.min(4,G.beats):0;let k=
  [...el.children].forEach((x,j)=>x.classList.toggle("on",j===k))}
 function flash(sel){$$(sel).forEach(el=>{el.classList.add("hit");clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove("hit"),140)})}
 function uiNote(n,on){const k=$(`#keys i[data-k="${n}"]`);if(k)k.classList.toggle("on",on)}
-function setMidi(ok,txt){const m=$("#midi");m.textContent=txt;m.classList.toggle("ok",ok);$("#gateMidi").textContent=ok?`Tastiera collegata: ${txt}`:txt}
+function setMidi(ok,txt){const m=$("#midi");m.firstChild.textContent=txt;m.title=txt;m.classList.toggle("ok",ok);$("#gateMidi").textContent=ok?`Tastiera collegata: ${txt}`:txt}
 
 loadSet();build();render();loadCustomSounds();initMIDI();telConnect();requestAnimationFrame(frame);

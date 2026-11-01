@@ -11,6 +11,7 @@ class LoopCore{
   this.CH=sr*2;this.UNDO=10; // la registrazione si accumula a pezzi da 2 s; strati di annulla tenuti per loop
   this.WD=Math.round(sr*.012);this.WM=1;while(this.WM<=this.WD)this.WM*=2;this.WM--; // apertura stereo: ritardo di 12 ms, maschera dell'anello
   this.XF=Math.round(sr*.006); // dissolvenza quando un loop cambia contenuto (swap)
+  this.vs=new Float32Array(4096);this.RC=1/(.12*sr); // lettura a velocità variabile; inerzia della velocità: 0,12 s, come un piatto
   this.loops=[];for(let i=0;i<this.NL;i++)this.loops.push(this.fresh());
  }
  // pan: -1 sinistra … 1 destra; fx: filtro sull'uscita del loop, -1 passa-basso … 0 niente … 1 passa-alto.
@@ -18,7 +19,9 @@ class LoopCore{
  // cp: copia per l'annulla della sovraincisione in corso, fatta a pezzi (vedi cpStep)
  // hp: passa-alto del mix automatico in Hz (0 = spento), wid: apertura stereo 0…1; hs/ws smussati, h1/h2 stati, wd anello del ritardo
  // orig: il loop com'era prima di uno swap che lo tiene da parte; xb/xn: buffer di prima e dissolvenza in corso
- fresh(){return{orig:null,xb:null,xn:0,buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,hp:0,hs:0,h1:0,h2:0,wid:0,ws:0,wd:null,wp:0,pg:null,ver:0,sv:0,rec:null,dub:null,cp:null,tails:[],pq:[],undo:[],redo:[]}}
+ // rate: velocità di lettura (1 = normale, manopola 4), rs smussata, ph quanto la lettura è avanti (+) o indietro (−) rispetto alla griglia;
+ // home: frame in cui torna sulla griglia, ho e hn: posizione di prima e dissolvenza in corso
+ fresh(){return{rate:1,rs:1,ph:0,home:0,ho:0,hn:0,orig:null,xb:null,xn:0,buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,hp:0,hs:0,h1:0,h2:0,wid:0,ws:0,wd:null,wp:0,pg:null,ver:0,sv:0,rec:null,dub:null,cp:null,tails:[],pq:[],undo:[],redo:[]}}
  cmd(c){this.q.push(c)}
  mod(a,n){return((a%n)+n)%n}
  snap(L){return{buf:L.buf,len:L.len,t0:L.t0}}
@@ -39,7 +42,7 @@ class LoopCore{
   const B=96,b=L.buf,step=L.len/B,p=new Array(B),st=Math.max(4,Math.floor(step/128));
   for(let k=0;k<B;k++){let m=0;const a=Math.floor(k*step),z=Math.floor((k+1)*step);
    for(let j=a;j<z;j+=st){const v=b[j]<0?-b[j]:b[j];if(v>m)m=v}p[k]=+m.toFixed(3)}
-  this.msgs.push({type:"peaks",i,peaks:p})}
+  this.msgs.push({type:"peaks",i,peaks:p,ver:L.ver})} // ver: la batteria rilegge i loop cambiati
  state(i){const L=this.loops[i];this.msgs.push({type:"state",i,has:!!L.buf,len:L.len,t0:L.t0,undo:L.undo.length,redo:L.redo.length});this.peaks(i)}
  exec(c,F0){const L=c.i!=null?this.loops[c.i]:null;
   switch(c.type){
@@ -67,13 +70,14 @@ class LoopCore{
    case "fx":L.fx=Math.max(-1,Math.min(1,c.v));break;
    case "hp":L.hp=Math.max(0,Math.min(2000,c.v));break;
    case "wid":this.setWid(L,c.v);break;
+   case "rate":L.rate=c.v;L.home=c.home||0;break;
    case "shift":for(const o of this.loops){o.t0+=c.delta;for(const s of o.undo)s.t0+=c.delta;for(const s of o.redo)s.t0+=c.delta}break;
    // batteria (app.js): il loop suona un altro contenuto da frame, con una dissolvenza di XF. keep tiene da parte quello
    // di prima (orig) la prima volta; data null rimette orig. La lunghezza può cambiare (una batteria di 4 battute su un giro di 1)
    case "swap":{if(!L.buf)break;this.cpDone(L);let nb=c.data,len=nb?nb.length:0;
     if(nb){if(c.keep&&!L.orig)L.orig={buf:L.buf,len:L.len}}else if(L.orig){nb=L.orig.buf;len=L.orig.len;L.orig=null}else break;
     L.xb=L.buf;L.xn=this.XF;L.buf=nb;L.len=len;L.ver++;this.state(c.i);break}
-   case "clear":L.orig=null;this.cpDone(L);if(L.buf)this.push(L,this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;L.ver++;this.state(c.i);break;
+   case "clear":L.ph=0;L.rs=L.rate;L.orig=null;this.cpDone(L);if(L.buf)this.push(L,this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;L.ver++;this.state(c.i);break;
    case "undo":case "redo":{
     this.cpDone(L);L.orig=null;L.dub=null;L.tails=[];L.pq=[];const from=c.type==="undo"?L.undo:L.redo,to=c.type==="undo"?L.redo:L.undo;
     if(from.length){to.push(this.snap(L));const s=from.pop();L.buf=s.buf;L.len=s.len;L.t0=s.t0;L.ver++}
@@ -103,6 +107,17 @@ class LoopCore{
  hpf(fc){if(fc<20)return null;const g=Math.tan(Math.PI*Math.min(fc,this.sr*.45)/this.sr),k=Math.SQRT2,a1=1/(1+g*(g+k));return{k,a1,a2:g*a1,a3:g*g*a1}}
  // l'anello del ritardo si crea una volta sola, la prima volta che il loop si apre
  setWid(L,v){L.wid=Math.max(0,Math.min(1,v));if(L.wid>0&&!L.wd)L.wd=new Float32Array(this.WM+1)}
+ // legge n campioni a velocità variabile in vs (interpolazione lineare). La griglia non si ferma: ph conta di quanto la lettura
+ // se ne è allontanata, e gira anche a loop muto, così tutti i loop restano allineati fra loro. Quasi fermo il suono diventa
+ // un valore costante: si abbassa prima. A home si torna sulla griglia con una dissolvenza dalla posizione di prima
+ lerp(b,q,len){const i=Math.floor(q),f=q-i,j=i+1===len?0:i+1;return b[i]+(b[j]-b[i])*f}
+ vsRead(L,F0,n){if(this.vs.length<n)this.vs=new Float32Array(n);
+  if(L.home&&L.home<F0+n){L.ho=L.ph;L.hn=this.XF;L.ph=(F0-L.home)*(L.rate-1);L.rs=L.rate;L.home=0} // home sta dentro il blocco: a velocità ≠ 1 la lettura passa da lì
+  const o=this.vs,b=L.buf,len=L.len,rt=L.rate,RC=this.RC,base=F0-L.t0;let r=L.rs,ph=L.ph,q=this.mod(base+ph,len);
+  for(let k=0;k<n;k++){let x=this.lerp(b,q,len);if(r<.12)x*=r/.12;
+   if(L.hn>0){const w=L.hn--/this.XF;x+=(this.lerp(b,this.mod(base+k+L.ho,len),len)-x)*w}
+   o[k]=x;q+=r;if(q>=len)q-=len;ph+=r-1;r+=(rt-r)*RC}
+  L.rs=r;L.ph=ph}
  // out: uscita mono (o canale sinistro); outR facoltativo: se c'è l'uscita è stereo e vale il pan.
  // outs facoltativo: [[sinistra,destra],…] uno per loop; se c'è, ogni loop esce sul suo (per gli effetti del singolo loop)
  process(ins,out,F0,n,outR,outs){
@@ -122,27 +137,31 @@ class LoopCore{
   for(let i=0;i<this.NL;i++){const L=this.loops[i];
    if(L.pg&&L.pg.frame<F1){L.gt=L.pg.on?1:0;L.pg=null}
    if(!L.buf)continue;const b=L.buf,len=L.len,target=L.gt*L.vol;let g=L.g;
+   // misura per Orecchio: l'indice (F − t0) mod len torna a 0 in questo blocco. Anche a loop fermo: l'indice è una formula, non si ferma
+   {const w=this.mod(L.t0-F0,len);if(w<n)this.msgs.push({type:"wrap",loop:i,ctx:(F0+w)/this.sr,len,t0:L.t0})}
    if(L.cp)this.cpStep(L,Math.max(this.DB,4096+2*n)); // parte 4096 campioni prima della testina: il primo pezzo la supera sempre
    if(L.pq.length){L.pq=L.pq.filter(P=>{if(P.at>=F1)return true;this.cpDone(L);const d=P.data;let p=this.mod(P.start,len);
      for(let k=0;k<d.length;k++){b[p]+=d[k];if(++p===len)p=0}L.ver++;this.peaks(i);return false})}
    L.ps+=(L.pan-L.ps)*sm;L.fs+=(L.fx-L.fs)*sm;L.hs+=(L.hp-L.hs)*sm;L.ws+=(L.wid-L.ws)*sm;
-   if(g>1e-5||target>0){let p=this.mod(F0-L.t0,len);
+   const VS=L.rate!==1||L.rs!==1||L.ph!==0||L.home||L.hn>0;if(VS){this.vsRead(L,F0,n);L.xn=0;L.xb=null}
+   const rb=VS?this.vs:b,rl=VS?n:len; // da dove legge: a velocità variabile il blocco è già pronto
+   if(g>1e-5||target>0){let p=VS?0:this.mod(F0-L.t0,len);
     const oL=outs?outs[i][0]:out,oR=outs?outs[i][1]:outR;
     const F=this.filt(L.fs),H=this.hpf(L.hs),W=oR&&L.wd&&L.ws>.005?L.ws:0,gl=oR?Math.min(1,1-L.ps):1,gr=Math.min(1,1+L.ps);
     const XB=L.xn>0?L.xb:null,xl=XB?XB.length:0; // swap appena fatto: dissolvenza dal contenuto di prima
     if(!F){L.z1=0;L.z2=0}if(!H){L.h1=0;L.h2=0}
     if(!F&&!H&&!W&&!XB){
-     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;const s=b[p]*g;oL[k]+=s*gl;if(oR)oR[k]+=s*gr;if(++p===len)p=0}}
+     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;const s=rb[p]*g;oL[k]+=s*gl;if(oR)oR[k]+=s*gr;if(++p===rl)p=0}}
     else{let z1=L.z1,z2=L.z2,h1=L.h1,h2=L.h2,wp=L.wp;const kq=F&&F.k,wd=L.wd,M=this.WM,D=this.WD;
      // apertura stereo: a sinistra il suono più la sua copia ritardata, a destra meno la copia. Sommati tornano
      // il suono di partenza (in mono non cambia niente), nw tiene uguale il livello
      const nw=1/Math.sqrt(1+W*W),wl=gl*nw,wr=gr*nw;
-     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;let x=b[p];if(XB&&L.xn>0){const w=L.xn--/this.XF;x+=(XB[p%xl]-x)*w}x*=g;
+     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;let x=rb[p];if(XB&&L.xn>0){const w=L.xn--/this.XF;x+=(XB[p%xl]-x)*w}x*=g;
       if(F){const v3=x-z2,v1=F.a1*z1+F.a2*v3,v2=z2+F.a2*z1+F.a3*v3;z1=2*v1-z1;z2=2*v2-z2;x=F.hp?x-kq*v1-v2:v2}
       if(H){const v3=x-h2,v1=H.a1*h1+H.a2*v3,v2=h2+H.a2*h1+H.a3*v3;h1=2*v1-h1;h2=2*v2-h2;x=x-H.k*v1-v2}
       if(W){const d=wd[(wp-D)&M]*W;wd[wp]=x;wp=(wp+1)&M;oL[k]+=(x+d)*wl;oR[k]+=(x-d)*wr}
       else{oL[k]+=x*gl;if(oR)oR[k]+=x*gr}
-      if(++p===len)p=0}
+      if(++p===rl)p=0}
      L.z1=z1;L.z2=z2;L.h1=h1;L.h2=h2;L.wp=wp;if(L.xn<=0)L.xb=null}}
    L.g=g;
    if(L.dub){const x=ins[L.dub.bus];if(x){let p=this.mod(F0-L.dub.comp-L.t0,len);for(let k=0;k<n;k++){b[p]+=x[k];if(++p===len)p=0}L.ver++}

@@ -7,143 +7,210 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: un looper e basta — barra (play · sovraincidi), suoni sempre in vista divisi per famiglia, una riga che dice cosa fare,
-   otto cerchi disposti come i pad dell'Axiom (5–8 sopra, 1–4 sotto) */
+/* Layout: una schermata sola, senza scorrere. Ogni zona ha il suo posto e non si muove quando cambia stato:
+   barra (battito · play · break · sovraincidi), riga che dice cosa fare, a sinistra gli otto pad (5–8 sopra, 1–4 sotto come sull'Axiom),
+   a destra i suoni sempre in vista divisi per famiglia, sotto le otto manopole e la riga dei tasti.
+   Sotto i 1000 px di larghezza (o se la finestra è molto bassa) diventa una colonna sola e la pagina scorre. */
 :root{
-  --bg:#111418; --panel:#191e25; --panel2:#222932; --line:#2f3844;
-  --ink:#ece7db; --dim:#8a93a1; --faint:#4d5663; --sel:#7ea6f2;
+  --bg:#111418; --panel:#191e25; --panel2:#232a33; --line:#333d4a;
+  --ink:#ece7db; --dim:#99a2b0; --faint:#4d5663; --sel:#7ea6f2;
   --rec:#ef4b50; --play:#3fb950; --dub:#f0a323; --arm:#e2a43a;
-  --f-display:"Barlow Condensed","Arial Narrow",sans-serif;
-  --f-body:"IBM Plex Sans",system-ui,sans-serif;
+  --f-display:"Barlow Condensed","Bahnschrift Condensed","Arial Narrow",sans-serif;
+  --f-body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --gap:clamp(6px,1vh,10px);
   color-scheme:dark;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--ink);font:14px/1.4 var(--f-body);overflow-x:hidden;
-  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px}
+  padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));padding-block:var(--gap)}
 button{font:inherit;color:inherit;cursor:pointer}
+button:disabled{cursor:default}
 button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
-.app{max-width:1300px;margin:0 auto;height:100%;display:grid;grid-template-rows:auto auto auto 1fr auto auto;gap:10px}
+.app{max-width:2200px;margin:0 auto;height:100%;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto auto;gap:var(--gap)}
 
-.top{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap}
-.brand{font:700 28px/1 var(--f-display);letter-spacing:.12em}
-.meta{display:flex;flex-direction:column;gap:2px;min-width:7.5em}
-#clock{font:500 20px/1 var(--f-mono);font-variant-numeric:tabular-nums;min-height:20px}
-#info{font:12px var(--f-mono);color:var(--dim)}
-.beat{display:flex;gap:6px}
-.beat i{width:40px;height:40px;border-radius:9px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;
-  font:700 22px/1 var(--f-display);font-style:normal;color:var(--faint)}
+/* barra in alto: i pulsanti hanno una larghezza minima, così non si spostano quando cambia il testo */
+.top{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px clamp(8px,1.2vw,18px);min-width:0}
+.brand{font:700 clamp(24px,3.6vh,32px)/1 var(--f-display);letter-spacing:.12em}
+.pulse{--bs:clamp(30px,5vh,42px);display:flex;align-items:center;gap:clamp(8px,1vw,14px);min-width:0;min-height:var(--bs)}
+.beat{display:flex;gap:4px}
+.beat i{width:var(--bs);height:var(--bs);border-radius:8px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;
+  font:700 calc(var(--bs)*.58)/1 var(--f-display);font-style:normal;color:var(--dim)}
 .beat i.on{background:var(--play);border-color:var(--play);color:#08130a}
 .beat i:first-child.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
-#dropBtn{color:var(--sel);border-color:color-mix(in srgb,var(--sel) 45%,var(--line))}
+.meta{display:flex;flex-direction:column;gap:1px;min-width:7.2em}
+#clock{font:500 15px/1.1 var(--f-mono);font-variant-numeric:tabular-nums}
+#clock:empty{display:none}
+#info{font:clamp(12.5px,1.5vh,15px)/1.2 var(--f-mono);color:var(--dim);white-space:nowrap}
+.transport{display:flex;gap:8px}
+.big{background:var(--panel);border:1px solid var(--line);border-radius:9px;height:clamp(36px,5.6vh,46px);padding:0 14px;font:700 clamp(16px,2.4vh,20px)/1 var(--f-display);letter-spacing:.08em;white-space:nowrap}
+#playBtn{min-width:6.6em}
+#playBtn.on{border-color:var(--play);color:var(--play)}
+#dropBtn{min-width:9em;color:var(--sel);border-color:color-mix(in srgb,var(--sel) 45%,var(--line))}
 #dropBtn.on{background:var(--sel);color:#0b1220}
-.sound{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px}
-.sound button{width:38px;height:38px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);font-size:18px}
-.sound .nm{display:flex;flex-direction:column;align-items:center;min-width:9.5em;padding-inline:4px}
-#sName{font:700 21px/1.05 var(--f-display);letter-spacing:.04em}
-.sound small{font:11px var(--f-mono);color:var(--dim)}
-.acts{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
-.big{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:9px 14px;font:700 17px/1 var(--f-display);letter-spacing:.08em;white-space:nowrap}
-.big.on{border-color:var(--play);color:var(--play)}
-#dubBtn{color:var(--dub);border-color:color-mix(in srgb,var(--dub) 45%,var(--line))}
+#dropBtn:disabled{color:var(--faint);border-color:var(--line)}
+#dubBtn{min-width:10.4em;color:var(--dub);border-color:color-mix(in srgb,var(--dub) 45%,var(--line))}
 #dubBtn.on{background:var(--dub);color:#1a1205}
-.small{background:none;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font:600 15px/1 var(--f-display);letter-spacing:.06em;color:var(--dim)}
-#knobBtn b{color:var(--ink);font-weight:700}
-#qBtn.on{color:var(--sel);border-color:color-mix(in srgb,var(--sel) 55%,var(--line))}
-#midi{font:12px var(--f-mono);color:var(--rec);display:flex;align-items:center;gap:6px;white-space:nowrap}
-#midi::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.side{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0}
+.small{background:none;border:1px solid var(--line);border-radius:8px;height:clamp(30px,3.8vh,42px);padding:0 10px;font:600 clamp(15px,1.8vh,19px)/1 var(--f-display);letter-spacing:.05em;color:var(--dim);white-space:nowrap}
+.small:disabled{color:var(--faint)}
+#midi{font:clamp(12.5px,1.5vh,15px) var(--f-mono);color:var(--rec);display:flex;align-items:center;gap:6px;min-width:0;max-width:17em}
+#midi::before{content:"";width:9px;height:9px;border-radius:50%;background:currentColor;flex:none}
+#midi span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #midi.ok{color:var(--play)}
 #tel{color:var(--play);border-color:color-mix(in srgb,var(--play) 45%,var(--line))}
 #telQR .sheet{max-width:360px;text-align:center}
 #telQR img{width:100%;max-width:300px;aspect-ratio:1;border-radius:8px;background:#fff;display:block;margin:8px auto}
 
-.soundbar{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 12px;display:flex;flex-direction:column;gap:7px}
-.sbh{display:flex;align-items:baseline;gap:12px}
-.sbt{font:700 15px/1 var(--f-display);letter-spacing:.14em;text-transform:uppercase}
-.sbk{font:12px var(--f-body);color:var(--dim)}
-.sounds{display:flex;flex-wrap:wrap;gap:8px 16px}
-.cat{display:flex;flex-direction:column;gap:4px;min-width:0}
-.catn{font:600 11px/1 var(--f-display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-.tiles{display:flex;gap:5px;flex-wrap:wrap}
-.snd{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 11px;font:600 16px/1 var(--f-display);letter-spacing:.03em;white-space:nowrap}
+/* la riga che dice cosa fare: alta sempre due righe di testo, così i pad non saltano */
+.hint{--hc:var(--faint);--hf:clamp(15px,1.25vw,19px);background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--hc);border-radius:9px;padding:6px 14px;
+  min-height:calc(var(--hf)*2.6 + 14px);display:flex;align-items:center;gap:6px 16px}
+.hint[data-c="rec"]{--hc:var(--rec)}.hint[data-c="arm"]{--hc:var(--arm)}.hint[data-c="dub"]{--hc:var(--dub)}.hint[data-c="play"]{--hc:var(--play)}.hint[data-c="sel"]{--hc:var(--sel)}
+#hint{flex:1 1 0;min-width:0;font:500 var(--hf)/1.3 var(--f-body)}
+#hint b{font-weight:600}
+#speedNote{flex:0 0 42%;color:var(--arm);border-left:1px solid var(--line);padding-left:16px;font:500 var(--hf)/1.3 var(--f-body)}
+#speedNote b{font-weight:700}
+
+.stage{display:grid;grid-template-columns:minmax(0,46fr) minmax(0,54fr);gap:var(--gap);min-height:0}
+.looper{display:flex;flex-direction:column;gap:var(--gap);min-height:0;min-width:0}
+.grid{flex:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:var(--gap);min-height:0}
+.tools{display:flex;gap:6px}
+.tools .small{flex:1 1 auto;padding:0 6px}
+#qBtn.on{color:var(--sel);border-color:color-mix(in srgb,var(--sel) 55%,var(--line))}
+#perfBtn.on{color:#fff;background:var(--rec);border-color:var(--rec)}
+
+/* pad: rettangolo pieno come quelli dell'Axiom. Numero e stato si leggono da lontano, sotto il suono e la forma d'onda con la testina */
+.loop{--c:var(--faint);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:clamp(5px,1vh,12px);display:flex;flex-direction:column;gap:clamp(2px,.5vh,6px);text-align:left;
+  min-height:0;min-width:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+.loop[data-c="play"]{--c:var(--play);border-color:color-mix(in srgb,var(--play) 50%,var(--line))}
+.loop[data-c="rec"]{--c:var(--rec)}.loop[data-c="dub"]{--c:var(--dub)}.loop[data-c="arm"]{--c:var(--arm)}.loop[data-c="off"]{--c:var(--dim)}
+.loop[data-c="rec"],.loop[data-c="dub"],.loop[data-c="arm"]{border-color:var(--c);background:color-mix(in srgb,var(--c) 20%,var(--panel))}
+.loop.sel{box-shadow:0 0 0 2px var(--sel) inset}
+.loop.hit,.loop:active{background:color-mix(in srgb,var(--c) 32%,var(--panel))}
+.lh{display:flex;align-items:baseline;gap:6px;min-width:0;flex:none}
+.num{font:700 clamp(24px,4.6vh,48px)/1 var(--f-display);color:var(--ink)}
+.loop[data-c="empty"] .num{color:var(--dim)}
+.st{margin-left:auto;font:700 clamp(14px,2.2vh,22px)/1 var(--f-display);letter-spacing:.06em;color:var(--c);white-space:nowrap;overflow:hidden}
+.blink .st{animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.25}}
+.snm{font:500 clamp(12.5px,1.8vh,16px)/1.15 var(--f-body);color:var(--ink);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;flex:none}
+.snm:empty{display:none}
+.wv{position:relative;flex:1 1 0;min-height:8px;border-radius:5px;background:var(--panel2);overflow:hidden}
+.loop[data-c="empty"] .wv{background:none}
+.wv svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.wave{stroke:var(--c);stroke-width:1.5;fill:none;vector-effect:non-scaling-stroke}
+.loop[data-c="off"] .wave{opacity:.45}
+.rprog{position:absolute;inset:0;background:color-mix(in srgb,var(--c) 22%,transparent);border-right:2px solid var(--c);transform:translateX(-102%);will-change:transform}
+
+/* suoni: famiglia a sinistra, suoni a destra. Se i suoni aggiunti non ci stanno scorre solo questo elenco */
+.soundbar{--sf:clamp(14px,2.05vh,20px);--sp:clamp(3px,calc((100vh - 600px)*.025 + 3px),16px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:clamp(6px,1vh,10px) 10px;display:flex;flex-direction:column;gap:clamp(5px,.9vh,10px);min-height:0;min-width:0}
+.tiprow{display:flex;gap:5px;align-items:center;min-width:0;flex:none}
+.tips{display:flex;gap:5px;align-items:center;min-width:0;flex:1;flex-wrap:wrap}
+.tips .catn{margin-right:3px;padding-top:0}
+#addBtn{flex:none}
+.sounds{flex:1;min-height:0;overflow-y:auto;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:clamp(4px,.75vh,10px) 10px;align-content:space-between;scrollbar-width:thin}
+.cat{display:contents}
+.catn{font:600 clamp(13px,1.6vh,16px)/1 var(--f-display);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);white-space:nowrap;padding-top:calc(var(--sf)*.55 + var(--sp) - 6px)}
+.cat.cur .catn{color:var(--sel)}
+.tiles{display:flex;gap:4px;flex-wrap:wrap;min-width:0}
+.snd{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:var(--sp) clamp(6px,.65vw,14px);font:600 var(--sf)/1.1 var(--f-display);letter-spacing:.02em;white-space:nowrap}
 .snd:hover{border-color:var(--dim)}
 .snd.on{background:var(--sel);border-color:var(--sel);color:#0d1420}
 .snd.wait{opacity:.5}
-.snd:disabled{cursor:default}
 /* consigli: tre suoni con il motivo sotto; quello inatteso ha il bordo tratteggiato. Nel pannello i consigliati hanno il bordo ambra */
-.tips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.tips .catn{margin-right:4px}
 .snd.tip{border-color:var(--arm);text-align:left}
 .snd.tip.odd{border-style:dashed}
-.snd.tip small{display:block;margin-top:3px;font:500 11px/1 var(--f-body);letter-spacing:0;color:var(--dim)}
+.snd.tip small{display:block;margin-top:2px;font:500 clamp(12px,1.4vh,14px)/1 var(--f-body);letter-spacing:0;color:var(--dim)}
 .snd.tip.on small{color:#0d1420}
 .snd.tipped{border-color:color-mix(in srgb,var(--arm) 70%,var(--line))}
-.drumkeys{display:flex;gap:4px;flex-wrap:wrap}
-.dk{font:12px var(--f-body);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:4px 7px;display:flex;gap:5px}
-.dk.bk{background:#0b0d10}
-.dk b{font:600 11px var(--f-mono);color:var(--sel)}
-.mid{display:flex;flex-direction:column;gap:8px;min-width:0}
-.djctl{display:flex;gap:8px;flex-wrap:wrap}
+
+/* manopole: la striscia c'è sempre e mostra quello che comandano adesso, così cambiando modo non si muove niente */
+.knobs{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--gap)}
+.kctl{display:flex;flex-direction:column;gap:4px;justify-content:center}
+.krow{display:flex;gap:6px;align-items:center}
+.klabel{font:600 clamp(13px,1.6vh,16px)/1 var(--f-display);letter-spacing:.1em;color:var(--dim)}
+.seg{display:flex;flex:1;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{flex:1 1 auto;background:none;border:0;height:clamp(26px,3.2vh,36px);padding:0 9px;font:600 clamp(15px,1.8vh,19px)/1 var(--f-display);letter-spacing:.04em;color:var(--dim);white-space:nowrap}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--sel);color:#0d1420}
+.krow .small{flex:1 1 auto;height:clamp(26px,3.2vh,36px);padding:0 8px}
 #fxScopeBtn b{color:var(--ink)}
+#fxScopeBtn:disabled b{color:inherit}
 #fxScopeBtn.on{color:var(--sel);border-color:color-mix(in srgb,var(--sel) 55%,var(--line))}
 #fxStopBtn.on{color:var(--rec);border-color:color-mix(in srgb,var(--rec) 55%,var(--line))}
-.djbar{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
-.dj{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:4px;min-width:0}
-.dj span{font:600 13px/1 var(--f-display);letter-spacing:.06em;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.djbar{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:5px}
+.dj{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 8px;display:flex;flex-direction:column;gap:4px;justify-content:center;min-width:0}
+.dj span{font:600 clamp(14px,1.8vh,19px)/1.05 var(--f-display);letter-spacing:.03em;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dj span b{color:var(--ink)}
-.dj i{position:relative;height:5px;background:var(--panel2);border-radius:3px;overflow:hidden}
+.dj i{position:relative;height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;flex:none}
 .dj i u{position:absolute;top:0;bottom:0;background:var(--sel);text-decoration:none}
-.dj.c i::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--faint)}
-.dj small{font:11px var(--f-mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dj.c i::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--dim)}
+.dj small{font:clamp(12px,1.5vh,15px)/1.1 var(--f-body);color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dj.on{border-color:color-mix(in srgb,var(--sel) 55%,var(--line))}
 .dj.on small{color:var(--sel)}
-@media (max-width:760px){.djbar{grid-template-columns:repeat(4,minmax(0,1fr))}}
-.hint{--hc:var(--faint);background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--hc);border-radius:9px;padding:10px 16px;min-height:50px;display:flex;align-items:center}
-.hint[data-c="rec"]{--hc:var(--rec)}.hint[data-c="arm"]{--hc:var(--arm)}.hint[data-c="dub"]{--hc:var(--dub)}.hint[data-c="play"]{--hc:var(--play)}.hint[data-c="sel"]{--hc:var(--sel)}
-#hint{font:500 clamp(15px,1.5vw,19px)/1.3 var(--f-body)}
-#hint b{font-weight:600}
+.dj.off{opacity:.55}
 
-.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:10px;min-height:0}
-.loop{--c:var(--faint);position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px;display:flex;align-items:center;justify-content:center;min-height:0;min-width:0;touch-action:none;user-select:none;-webkit-user-select:none}
-.loop[data-c="play"]{--c:var(--play)}.loop[data-c="rec"]{--c:var(--rec)}.loop[data-c="dub"]{--c:var(--dub)}.loop[data-c="arm"]{--c:var(--arm)}.loop[data-c="off"]{--c:var(--dim)}
-.loop[data-c="rec"],.loop[data-c="dub"],.loop[data-c="arm"]{border-color:color-mix(in srgb,var(--c) 60%,var(--line));background:color-mix(in srgb,var(--c) 7%,var(--panel))}
-.loop.sel{box-shadow:0 0 0 2px var(--sel) inset}
-.loop.hit,.loop:active{background:color-mix(in srgb,var(--c) 22%,var(--panel))}
-.loop svg{height:100%;max-height:100%;max-width:100%;aspect-ratio:1;display:block}
-.rbg{fill:none;stroke:var(--line);stroke-width:5}
-.rprog{fill:none;stroke:var(--c);stroke-width:5;stroke-linecap:round;transform:rotate(-90deg);transform-origin:60px 60px}
-.wave{stroke:var(--c);stroke-width:1.6;stroke-linecap:round;opacity:.85}
-.loop[data-c="off"] .wave{opacity:.4}
-.num{fill:var(--ink);font:700 27px var(--f-display);text-anchor:middle;dominant-baseline:middle}
-.loop[data-c="empty"] .num{fill:var(--faint)}
-.snm{fill:var(--dim);font:500 6.5px var(--f-body);text-anchor:middle;dominant-baseline:middle}
-.st{fill:var(--c);font:700 7.5px var(--f-display);letter-spacing:.1em;text-anchor:middle;dominant-baseline:middle}
-.blink .st,.blink .rprog{animation:blink 1s steps(2) infinite}
-@keyframes blink{50%{opacity:.25}}
-.vol{position:absolute;left:14px;right:14px;bottom:8px;height:3px;background:var(--panel2);border-radius:2px;overflow:hidden}
-.vol i{position:absolute;top:0;bottom:0;left:0;background:var(--c);opacity:.7}
-.vol.pan,.vol.fx{height:5px}
-.vol.pan::after,.vol.fx::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--faint)}
-.loop[data-c="empty"] .vol{visibility:hidden}
-
-.keys{display:flex;height:6px;gap:1px}
-.keys i{flex:1;background:var(--panel2);border-radius:1px}
+/* riga in fondo: le note suonate o, con una batteria, cosa c'è su ogni tasto */
+.bottom{height:24px;min-width:0}
+.keys{display:flex;height:100%;gap:1px}
+.keys i{flex:1;background:var(--panel2);border-radius:2px}
 .keys i.b{background:#0b0d10}
 .keys i.on{background:var(--sel)}
-.legend{display:flex;flex-wrap:wrap;gap:4px 18px;font:12.5px var(--f-body);color:var(--dim)}
-.legend b{color:var(--ink);font-weight:600}
-.legend button{background:none;border:0;padding:0;color:var(--dim);text-decoration:underline;text-underline-offset:3px}
+.drumkeys{display:flex;gap:3px;height:100%}
+.dk{flex:1 1 auto;font:clamp(12px,1.4vh,14px)/1 var(--f-body);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:0 5px;display:flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap;overflow:hidden}
+.dk.bk{background:#0b0d10}
+.dk b{font:600 1em var(--f-mono);color:var(--sel)}
 
-@media (max-width:760px){
- .grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:42vw}
- .app{height:auto}
- .acts{margin-left:0}
+@media (max-width:1320px){#tel .wide{display:none}}
+@media (max-width:1180px){
+ .brand{display:none}
+ .wide{display:none}
+ .transport{gap:5px}
+ .big{padding:0 9px}
+ #dubBtn{min-width:9.2em}
+ #dropBtn{min-width:8em}
+ .small{padding:0 7px}
+ .klabel{display:none}
+ .dk{font-size:12px;padding:0 3px;gap:3px}
+ .dj{min-height:68px;padding-inline:6px}
+ .dj span{white-space:normal;line-height:1;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;flex:none}
+}
+/* colonna sola: finestra stretta o molto bassa. Le zone restano nell'ordine in cui servono e la pagina scorre */
+@media (max-width:999px),(max-height:519px){
+ html,body{height:auto}
+ .app{height:auto;display:flex;flex-direction:column}
+ .top{display:flex;flex-wrap:wrap}
+ .transport{flex-wrap:wrap}
+ .side{justify-content:flex-start}
+ .wide{display:inline}
+ .stage{display:contents}
+ .top{order:1}.hint{order:2}.looper{order:3}.knobs{order:4}.soundbar{order:5}.bottom{order:6}
+ .grid{flex:none;grid-auto-rows:clamp(88px,24vw,150px);grid-template-rows:none}
+ .sounds{overflow:visible}
+ .tools,.tiprow{flex-wrap:wrap}
+ .hint{flex-wrap:wrap}
+ #hint{flex:1 1 320px}
+ #speedNote{flex:1 1 100%;border-left:0;padding-left:0}
+ .knobs{grid-template-columns:minmax(0,1fr)}
+ .djbar{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .klabel{display:block}
+ .bottom{height:auto;min-height:12px}
+ .keys{height:12px}
+ .drumkeys{flex-wrap:wrap;height:auto}
+ .dk{padding:4px 6px}
+}
+@media (max-width:620px){
+ .grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:96px}
+ .sounds{grid-template-columns:minmax(0,1fr)}
+ .catn{padding-top:4px}
+ .side{flex-wrap:wrap}
 }
 
 .overlay{position:fixed;inset:0;background:color-mix(in srgb,var(--bg) 90%,transparent);display:grid;place-items:center;z-index:20;padding:16px}
 .sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(640px,100%);max-height:100%;overflow:auto;padding:18px;display:flex;flex-direction:column;gap:16px}
+#help .sheet{width:min(820px,100%)}
 .sheet h2{margin:0;font:700 22px/1 var(--f-display);letter-spacing:.08em}
 .sheet h3{margin:0;font:700 14px/1 var(--f-display);letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
 .sheet section{display:flex;flex-direction:column;gap:8px}
@@ -180,52 +247,56 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 
 <div class="app">
   <header class="top">
-    <div class="brand">GIRO</div>
-    <div class="meta"><span id="clock"></span><span id="info">giro libero</span></div>
-    <div class="beat" id="beat" aria-hidden="true" hidden></div>
-    <div class="acts">
-      <button class="big" id="playBtn">▶ PLAY</button>
-      <button class="big" id="dropBtn" hidden title="Tocco: break / rientro sull'1 · tenuto: salita, lasci: DROP sull'1 (▶ sull'Axiom, B sul PC)">▶ BREAK</button>
-      <button class="big" id="dubBtn">● SOVRAINCIDI</button>
-      <button class="small" id="knobBtn" title="Cosa fanno le manopole: cambia col pulsante dei modi dell'Axiom, con un clic qui o col tasto M">MANOPOLE <b>VOLUME</b></button>
-      <button class="small" id="perfBtn" title="Registra tutto quello che esce e lo salva in un WAV (tasto N sul PC)">● REGISTRA ESIBIZIONE</button>
-      <button class="small" id="qBtn" title="Rimette a tempo le note registrate (Q sul PC)">QUANTIZZA 1/16</button>
-      <button class="small" id="undoBtn" title="Annulla l'ultimo strato (◀ sull'Axiom)">◀ ANNULLA</button>
-      <button class="small" id="redoBtn" title="Ripristina (▶ sull'Axiom)">RIPETI ▶</button>
+    <div class="pulse">
+      <div class="brand">GIRO</div>
+      <div class="meta"><span id="clock"></span><span id="info">giro libero</span></div>
+      <div class="beat" id="beat" aria-hidden="true" hidden></div>
     </div>
-    <span id="midi">MIDI</span>
-    <button class="small" id="tel" hidden title="Telecomando acceso: tocca per il QR da inquadrare col telefono"></button>
-    <button class="small" id="openSettings" aria-label="Impostazioni">⚙</button>
+    <div class="transport">
+      <button class="big" id="playBtn">▶ PLAY</button>
+      <button class="big" id="dropBtn" disabled title="Tocco: break / rientro sull'1 · tenuto: salita, lasci: DROP sull'1 (▶ sull'Axiom, B sul PC)">▶ BREAK</button>
+      <button class="big" id="dubBtn">● SOVRAINCIDI</button>
+    </div>
+    <div class="side">
+      <span id="midi"><span>MIDI</span></span>
+      <button class="small" id="tel" hidden title="Telecomando acceso: tocca per il QR da inquadrare col telefono">📱<span class="wide"> TELEFONO</span></button>
+      <button class="small" id="openHelp" title="Cosa fa ogni controllo dell'Axiom e ogni tasto del PC">?<span class="wide"> COMANDI</span></button>
+      <button class="small" id="openSettings" aria-label="Impostazioni">⚙</button>
+    </div>
   </header>
 
-  <section class="soundbar" aria-label="Suoni">
-    <div class="sbh"><span class="sbt">Suono</span><span class="sbk">▲ ▼ cambia famiglia · tasto centrale: suono successivo · oppure clic</span><button class="small" id="addBtn" style="margin-left:auto">+ SUONI</button></div>
-    <div class="tips" id="tips"></div>
-    <div class="sounds" id="sounds"></div>
-    <div class="drumkeys" id="drumKeys" hidden></div>
+  <div class="hint" id="hintBox"><div id="hint"></div><div id="speedNote" hidden></div></div>
+
+  <main class="stage">
+    <section class="looper" aria-label="Loop">
+      <div class="grid" id="grid"></div>
+      <div class="tools">
+        <button class="small" id="undoBtn" title="Annulla l'ultimo strato (◀ sull'Axiom)">◀ ANNULLA</button>
+        <button class="small" id="redoBtn" title="Ripristina (▶ sull'Axiom)">RIPETI ▶</button>
+        <button class="small" id="qBtn" title="Rimette a tempo le note registrate (Q sul PC)">QUANTIZZA 1/16</button>
+        <button class="small" id="perfBtn" title="Registra tutto quello che esce e lo salva in un WAV (tasto N sul PC)">● REGISTRA ESIBIZIONE</button>
+      </div>
+    </section>
+    <section class="soundbar" aria-label="Suoni">
+      <div class="tiprow"><div class="tips" id="tips"></div><button class="small" id="addBtn">+ SUONI</button></div>
+      <div class="sounds" id="sounds"></div>
+    </section>
+  </main>
+
+  <section class="knobs" aria-label="Manopole">
+    <div class="kctl">
+      <div class="krow"><span class="klabel">MANOPOLE</span><div class="seg" id="knobBtn" title="Cosa fanno le manopole: cambia col pulsante dei modi dell'Axiom, con un clic qui o col tasto M"></div></div>
+      <div class="krow">
+        <button class="small" id="fxScopeBtn" title="Su cosa agiscono le manopole degli effetti: tutto il mix o solo il loop selezionato (tasto C)">EFFETTI SU <b>TUTTO</b></button>
+        <button class="small" id="fxStopBtn" title="Spegne tutti gli effetti, sul mix e su ogni loop (tasto 0)">STOP EFFETTI</button>
+      </div>
+    </div>
+    <div class="djbar" id="djBar"></div>
   </section>
 
-  <div class="mid">
-    <div class="hint" id="hintBox"><div id="hint"></div></div>
-    <div class="djctl" id="djCtl" hidden>
-      <button class="small" id="fxScopeBtn" title="Su cosa agiscono le manopole degli effetti: tutto il mix o solo il loop selezionato (tasto C)">EFFETTI SU <b>TUTTO</b></button>
-      <button class="small" id="fxStopBtn" title="Spegne tutti gli effetti, sul mix e su ogni loop (tasto 0)">STOP EFFETTI</button>
-    </div>
-    <div class="djbar" id="djBar" hidden aria-label="Effetti DJ sulle manopole"></div>
-  </div>
-
-  <main class="grid" id="grid"></main>
-
-  <div class="keys" id="keys" aria-hidden="true"></div>
-  <div class="legend">
-    <span><b>Pad</b> loop 1–8</span>
-    <span><b>Tieni premuto</b> cancella</span>
-    <span><b>●</b> sovraincidi · <b>pitch bend</b> sceglie il loop</span>
-    <span><b>▶</b> break · tenuto: salita, lasci: DROP</span>
-    <span><b>■</b> fine a tempo · tenuto: cancella tutto · da fermo: spegne le note</span>
-    <span><b>▲ ▼</b> famiglia · <b>centrale</b> suono</span>
-    <span><b>◀ ▶</b> annulla / ripeti</span>
-        <span><b>Manopole 1–8</b> volume / pan / effetti DJ · si agganciano passando dal valore</span>
+  <div class="bottom">
+    <div class="keys" id="keys" aria-hidden="true"></div>
+    <div class="drumkeys" id="drumKeys" hidden></div>
   </div>
 </div>
 
@@ -271,6 +342,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
       <p>Ritardo audio: <b id="delayVal">—</b></p>
       <p class="help">Il tempo tra il tasto e il suono. Sotto i 30 ms non si sente. Le cuffie o le casse Bluetooth aggiungono molto ritardo: dal vivo usa cuffie col filo o casse collegate al PC. Non serve regolare niente: i loop registrano esattamente quello che senti.</p>
     </section>
+  </div>
+</div>
+<div id="help" class="overlay" hidden>
+  <div class="sheet">
+    <div class="shead"><h2>COMANDI</h2><button class="small" id="closeHelp">CHIUDI</button></div>
     <section>
       <h3>Axiom</h3>
       <table class="tbl">
@@ -285,7 +361,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>▲ ▼</td><td>Cambia famiglia di suoni (riprende l'ultimo suono usato in quella famiglia).</td></tr>
         <tr><td>Tasto centrale</td><td>Suono successivo nella stessa famiglia.</td></tr>
         <tr><td>Quantizza</td><td>Le note registrate vengono rimesse a tempo sulla griglia (1/16 o 1/8). Il primo loop decide il tempo: dura quanto vuoi, la griglia lo divide in parti uguali. Funziona con i suoni di Giro, non con un microfono.</td></tr>
-        <tr><td>Manopole 1–8</td><td>Secondo il modo scelto col pulsante MANOPOLE in alto (o tasto M): <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, <b>Effetti DJ</b> = effetti su tutto il mix o sul loop selezionato: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco a tempo · 3 riverbero · 4 <b>batteria</b> (girando: drum &amp; bass, metà tempo, dub, shuffle, house, rock, hip hop, funk; tutta a sinistra = spento): se non hai suonato la batteria, un batterista crea un loop di batteria col kit scelto nel pannello suoni; se l'hai suonata, la rimette a tempo e aggiunge quello che manca (charleston, rullanti fantasma, rullata ogni 4 battute, piatto). STOP EFFETTI non la tocca · 5 crusher · 6 wobble (filtro che si apre e chiude a tempo: girando 1/4, 1/8, terzine, 1/16; tutta a sinistra = spento) · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera (sul singolo loop: volume del loop). Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Dopo un cambio di modo, di loop o di ambito una manopola non salta: agisce quando passa dal valore attuale (in alto compare fin dove girarla).</td></tr>
+        <tr><td>Manopole 1–8</td><td>Secondo il modo scelto coi pulsanti MANOPOLE in basso (o tasto M): <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, <b>Effetti DJ</b> = effetti su tutto il mix o sul loop selezionato: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco (delay a tempo, sul quarto) · 3 riverbero · 4 <b>velocità</b> (al centro normale; a sinistra i loop rallentano e scendono di tono come un disco frenato, tutta a sinistra = fermo; a destra accelerano e salgono, tutta a destra = il doppio; le note che suoni restano normali. Tornando al centro riprendono a tempo sull'1) · 5 crusher · 6 wobble (filtro che si apre e chiude a tempo: girando 1/4, 1/8, terzine, 1/16; tutta a sinistra = spento) · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera (sul singolo loop: volume del loop). Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Dopo un cambio di modo, di loop o di ambito una manopola non salta: agisce quando passa dal valore attuale (in alto compare fin dove girarla).</td></tr>
       </table>
       <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
       <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>C</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>N</kbd> registra esibizione · <kbd>B</kbd> drop / build-up · <kbd>Maiusc</kbd>+<kbd>1</kbd>–<kbd>8</kbd> seleziona il loop · <kbd>Spazio</kbd> play/stop · <kbd>Esc</kbd> spegne le note · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>

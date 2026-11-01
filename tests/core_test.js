@@ -6,6 +6,11 @@ let outLog=new Map();
 function run(to){while(F<to){const ins=[0,1,2].map(b=>{const a=new Float32Array(N);for(let k=0;k<N;k++){const v=events[b][F+k];if(v)a[k]=v}return a});
  const out=new Float32Array(N);c.process(ins,out,F,N);for(let k=0;k<N;k++)if(Math.abs(out[k])>.05)outLog.set(F+k,+out[k].toFixed(3));F+=N}}
 const msgs=()=>{const m=c.msgs;c.msgs=[];return m};
+// ripartenze per Orecchio: al frame esatto in cui l'indice torna a 0, anche a loop fermo; il resto del file non le guarda
+{const d=new LoopCore(sr);d.exec({type:'load',i:2,data:new Float32Array(1000),len:1000,t0:250,vol:.8,pan:0,fx:0},0);d.msgs=[];
+ const o=new Float32Array(N),none=[null,null,null];for(let f=0;f<3200;f+=N)d.process(none,o,f,N);
+ const w=d.msgs.filter(m=>m.type==='wrap');
+ ok(w.length===3&&w.every((m,k)=>m.loop===2&&m.ctx===(250+k*1000)/sr),'ripartenze: frame esatti, anche a loop fermo ('+w.map(m=>m.ctx*sr).join(' ')+')')}
 // 1. primo loop: impulso a 1000, rec 1000..5000
 events[0][1000]=1;
 run(1024);c.cmd({type:'rec',i:0,bus:0,start:1000,comp:0});run(3000);
@@ -126,3 +131,21 @@ const join=it=>{const d=new Float32Array(it.len);let o=0;for(const ch of it.chun
  r.cmd({type:'swap',i:0,data:null,frame:out.length});go(2048);
  ok(r.loops[0].buf[5]===d[5]&&r.loops[0].len===4000&&!r.loops[0].orig&&Math.abs(out[out.length-1]-.2)<1e-6,'swap con data null: torna il loop di prima');
  r.cmd({type:'swap',i:0,data:e});go(N);r.cmd({type:'undo',i:0});go(N);ok(!r.loops[0].orig,'swap senza keep e annulla: niente originale tenuto')}
+// velocità (manopola 4): lettura più lenta o più veloce, griglia che non si ferma, ritorno preciso su un frame
+{const len=4000,d=new Float32Array(len);for(let j=0;j<len;j++)d[j]=Math.sin(2*Math.PI*20*j/len); // 40 Hz a sr 8000
+ const mk=()=>{const r=new LoopCore(sr);r.cmd({type:'load',i:0,data:d,len,t0:0,vol:1,pan:0,fx:0});r.cmd({type:'gate',i:0,on:1,frame:0});return r};
+ const go=(r,F0,bl)=>{const o=new Float32Array(N),x=[];for(let b=0;b<bl;b++){r.process([null,null,null],o,F0+b*N,N);x.push(...o)}return x};
+ const hz=x=>{let c=0;for(let j=1;j<x.length;j++)if(x[j-1]<0&&x[j]>=0)c++;return c*sr/x.length};
+ let r=mk();go(r,0,8);r.cmd({type:'rate',i:0,v:.5});go(r,8*N,60);ok(Math.abs(hz(go(r,68*N,60))-20)<1.5,'velocità 0,5: un\'ottava sotto');
+ r=mk();go(r,0,8);r.cmd({type:'rate',i:0,v:2});go(r,8*N,60);ok(Math.abs(hz(go(r,68*N,60))-80)<1.5,'velocità 2: un\'ottava sopra');
+ r=mk();go(r,0,8);r.cmd({type:'rate',i:0,v:0});go(r,8*N,80);ok(Math.max(...go(r,88*N,10).map(Math.abs))<.002,'velocità 0: fermo e in silenzio');
+ // a home torna identico alla griglia, sia da più lento sia da più veloce
+ for(const v of[.5,2]){r=mk();go(r,0,8);r.cmd({type:'rate',i:0,v});go(r,8*N,50);r.cmd({type:'rate',i:0,v:1,home:78*N});go(r,58*N,40);const x=go(r,98*N,10);let e=0;
+  for(let k=0;k<x.length;k++)e=Math.max(e,Math.abs(x[k]-d[(98*N+k)%len]));ok(e<1e-4&&r.loops[0].ph===0,'velocità '+v+' e ritorno: di nuovo sulla griglia ('+e.toExponential(1)+')')}
+ // al doppio e a metà, con home: dopo la rampa la lettura riparte dal punto della griglia e resta a tempo
+ for(const v of[.5,2]){const H=58*N+37;r=mk();go(r,0,8);r.cmd({type:'rate',i:0,v:1.37});go(r,8*N,30);r.cmd({type:'rate',i:0,v,home:H});go(r,38*N,30);const F=68*N,x=go(r,F,20);let e=0;
+  for(let k=0;k<x.length;k++){const q=(H+(F+k-H)*v)%len,i=Math.floor(q),j=(i+1)%len;e=Math.max(e,Math.abs(x[k]-(d[i]+(d[j]-d[i])*(q-i))))}
+  ok(e<1e-4,'velocità '+v+' con home: dopo la rampa agganciata alla griglia ('+e.toExponential(1)+')')}
+ // un loop muto resta allineato a uno che suona; a velocità normale nessuno scarto
+ r=mk();r.cmd({type:'load',i:1,data:d,len,t0:0,vol:1,pan:0,fx:0});go(r,0,8);r.cmd({type:'rate',i:0,v:1.5});r.cmd({type:'rate',i:1,v:1.5});go(r,8*N,50);ok(r.loops[0].ph===r.loops[1].ph&&r.loops[0].ph>0,'loop muto e loop che suona restano allineati');
+ r=mk();go(r,0,8);ok(!r.loops[0].ph&&r.loops[0].rs===1,'a velocità normale nessuno scarto')}
