@@ -6,6 +6,7 @@ const START_HINT="Premi un pad e suona: il primo loop parte dalla prima nota. Ri
 function loopLabel(i){const L=G.loops[i];
  if(L.pend)return L.pend.muted?"SI FERMA…":"RIPARTE…";
  if(L.dropped&&G.running)return"BREAK";
+ if(CUT&&CUT.i===i&&L.state==="play")return CUT.p?"↻ PEZZO":"IN…";
  switch(L.state){case "empty":return"";case "armed":return"SUONA";case "rec":return"REC";case "closing":return"CHIUDE…";
   case "dub":return"SOVRAINCIDI";case "play":return !G.running?"PRONTO":(L.muted?"FERMO":"")}}
 function loopColor(i){const L=G.loops[i];
@@ -23,7 +24,7 @@ function build(){
   <button class="loop" data-loop="${i}" aria-label="Loop ${i+1}">
    <span class="lh"><span class="num">${i+1}</span><span class="st"></span></span>
    <span class="snm"></span>
-   <span class="wv"><svg viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true"><path class="wave" d=""/></svg><i class="rprog"></i></span>
+   <span class="wv"><svg viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true"><path class="wave" d=""/></svg><i class="cutr"></i><i class="rprog"></i></span>
   </button>`).join("");
  $$(".loop").forEach(b=>{const i=+b.dataset.loop;
   b.addEventListener("pointerdown",e=>{e.preventDefault();atEvent(e,()=>padDown(i))});
@@ -43,6 +44,7 @@ function build(){
  $("#djBar").innerHTML=DJ_NAMES.map(()=>`<div class="dj"><span></span><i><u></u></i><small></small></div>`).join("");
  $("#fxScopeBtn").onclick=toggleFxScope;$("#fxStopBtn").onclick=stopAllFx;
  $("#tel").onclick=telQR;$("#telQR").onclick=()=>$("#telQR").hidden=true;
+ $("#cutBtn").addEventListener("pointerdown",e=>{e.preventDefault();atEvent(e,cutButton)});
  $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#perfBtn").onclick=perfToggle;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
  $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
@@ -74,6 +76,8 @@ function hint(){
  if((i=n("rec"))>=0)return G.loops[i].first?[`<b>Registro il primo loop.</b> Ripremi il pad ${i+1} nel punto esatto in cui deve ricominciare.`,"rec"]:[`<b>Registro il loop ${i+1}.</b> Ripremi il pad ${i+1} quando hai finito: la lunghezza si aggancia da sola.`,"rec"];
  if((i=n("closing"))>=0)return[`<b>Loop ${i+1}:</b> chiudo alla fine del giro, continua a suonare.`,"rec"];
  if((i=n("dub"))>=0)return[`<b>Sovraincisione sul loop ${i+1}.</b> Suona sopra, premi ● per smettere.`,"dub"];
+ if(CUT&&G.running)return CUT.p?[`<b>Loop ${CUT.i+1}: ripete il pezzo</b> (${cutLen(CUT.p)}). <b>V</b> per uscire: torna normale, a tempo.`,"dub"]:
+  [`<b>IN</b> sul loop ${CUT.i+1}. Premi <b>V</b> di nuovo dove finisce il pezzo: da lì si ripete.`,"arm"];
  if(!anyHas())return[START_HINT,"off"];
  if(!G.running)return["Fermo. <b>▶</b> per ripartire · tieni premuto <b>■</b> per cancellare tutto.","off"];
  return["Pad: nuovo loop · ferma / riparti sull'1 · <b>●</b> sovraincidi (pitch bend sceglie il loop) · <b>▶</b> break, tenuto salita e DROP · <b>■</b> fine a tempo.","play"]}
@@ -103,8 +107,12 @@ function knobCell(i){const L=G.loops[i],lab=n=>`<b>${i+1}</b> ${n}`,side=x=>x<0?
 function render(){
  $$(".loop").forEach(b=>{const i=+b.dataset.loop,L=G.loops[i];
   b.dataset.c=loopColor(i);b.classList.toggle("sel",i===G.sel);
-  b.classList.toggle("blink",L.state==="armed"||L.state==="closing"||!!L.pend);
-  b.querySelector(".st").textContent=loopLabel(i)});
+  b.classList.toggle("blink",L.state==="armed"||L.state==="closing"||!!L.pend||CUT?.i===i&&!CUT.p);
+  b.querySelector(".st").textContent=loopLabel(i);
+  // il pezzo sulla forma d'onda: da IN a OUT (solo IN finché manca OUT)
+  const cr=b.querySelector(".cutr"),on=CUT?.i===i&&L.len>0;cr.hidden=!on;
+  if(on){const a=(((CUT.s-L.t0)%L.len)+L.len)%L.len/L.len;cr.style.left=(a*100).toFixed(2)+"%";cr.style.width=(Math.min(CUT.p/L.len,1-a)*100).toFixed(2)+"%"}});
+ $("#cutBtn").textContent=!CUT?"↻ PEZZO: IN":CUT.p?"↻ PEZZO: ESCI":"↻ PEZZO: OUT";$("#cutBtn").classList.toggle("on",!!CUT);
  $$("#knobBtn button").forEach(b=>{b.classList.toggle("on",b.dataset.m===knobMode);if(b.dataset.m==="fx")b.hidden=knobMode!=="fx"});
  $("#fxScopeBtn").innerHTML=fxScope==="loop"?`EFFETTI SU <b>LOOP ${G.sel+1}</b>`:"EFFETTI SU <b>TUTTO</b>";
  $("#fxScopeBtn").disabled=knobMode!=="dj";
@@ -154,7 +162,10 @@ function frame(){
   $$(".loop").forEach(b=>{const i=+b.dataset.loop,L=G.loops[i],r=b.querySelector(".rprog");let fr=0;
    if(L.state==="rec"){fr=L.first?((f-L.start)/sr%4)/4:((f-L.start)/G.base)%1}
    else if(L.state==="closing")fr=(f-L.start)/L.len;
-   else if(L.has&&G.running&&!L.muted&&L.len)fr=(((f-L.t0)%L.len)+L.len)%L.len/L.len;
+   else if(L.has&&G.running&&!L.muted&&L.len){let g=f;
+    // pezzo ripetuto: la testina torna indietro con il suono
+    if(CUT?.i===i&&CUT.p&&f>=CUT.s+CUT.p)g=CUT.s+(f-CUT.s-CUT.p)%CUT.p;
+    fr=(((g-L.t0)%L.len)+L.len)%L.len/L.len}
    // la testina si sposta col compositore: niente ridisegno del pad a ogni fotogramma
    const v=fr>0?((Math.min(1,fr)-1)*100).toFixed(1):"-102";if(r._v!==v){r._v=v;r.style.transform=`translateX(${v}%)`}});
   const rec=G.loops.find(L=>L.state==="rec"&&L.first);

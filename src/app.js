@@ -199,7 +199,7 @@ function setFxScope(m){fxScope=m;
 const toggleFxScope=()=>setFxScope(fxScope==="mix"?"loop":"mix");
 // spegne tutti gli effetti, sul mix e su ogni loop (i volumi restano com'erano)
 function stopAllFx(){for(let i=0;i<7;i++)DJV[i]=0;
- if(DJ){for(let i=0;i<7;i++)djApply(DJ,i);for(let i=0;i<LDJ.length;i++)dropLoopDJ(i);pumpAutoOff()}
+ if(DJ){for(let i=0;i<7;i++)djApply(DJ,i);for(let i=0;i<LDJ.length;i++)dropLoopDJ(i);pumpAutoOff()}cutOff();
  flashHint("<b>Effetti spenti</b> su tutto il mix e su tutti i loop.");render()}
 // Tempo degli eventi. ctx.currentTime avanza a scatti: un blocco da 128 campioni alla volta, a raffiche lunghe quanto
 // il buffer della scheda (su questo PC 10 ms, scarto misurato 13,8 ms). Leggerlo quando arriva una nota dava fino a
@@ -341,7 +341,7 @@ function stopAll(){const f=nowF();G.stopAt=0;
   if(L.dropped){L.dropped=false;L.muted=false} // tolto dal break: alla ripartenza suona di nuovo
   // un loop che sta chiudendo partirebbe al suo confine: lo spengo lì
   send({type:"gate",i,on:0,frame:L.state==="closing"?Math.max(f,L.end):f})});
- G.drop=false;buildCancel();pumpAutoOff();G.running=false;rollAllOff();render()}
+ G.drop=false;buildCancel();pumpAutoOff();G.running=false;rollAllOff();cutOff();render()}
 // ■ a loop avviati: si ferma tutto alla fine del giro, sul battere; ■ di nuovo: subito
 function stopButton(){if(!ready)return;
  if(G.stopAt||!G.running){const n=allNotesOff();if(G.stopAt||G.loops.some(l=>l.state==="rec"||l.state==="armed"))stopAll();else if(n)flashHint("Spente le note rimaste accese.");return}
@@ -360,7 +360,7 @@ function stopPress(){clearTimeout(stopHold);
  stopHold=setTimeout(()=>{if(!anyHas())return;flashHint("Continua a tenere premuto per <b>cancellare tutto</b>…");
   stopHold=setTimeout(()=>{stopHold=0;if(anyHas())clearAll()},1500)},500)}
 function stopRelease(){clearTimeout(stopHold);stopHold=0}
-function clearAll(){send({type:"reset"});saveSoon();for(let i=0;i<NL;i++)dbgForget(i);DBG.gridClose=null;G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();pumpAutoOff();rollAllOff();djRetime();G.ev=[];
+function clearAll(){send({type:"reset"});saveSoon();for(let i=0;i<NL;i++)dbgForget(i);DBG.gridClose=null;G.base=null;G.running=false;G.stopAt=0;G.drop=false;buildCancel();pumpAutoOff();rollAllOff();CUT=null;djRetime();G.ev=[];
  G.loops.forEach(L=>Object.assign(L,{state:"empty",has:false,muted:false,pend:null,dropped:false,peaks:null,undo:0,redo:0}));flashHint("Tutto cancellato. Il prossimo giro lo decidi tu.")}
 function playButton(){if(!ready)return;if(!G.base){flashHint(START_HINT);return}
  if(G.running){flashHint("Sta già suonando. <b>■</b> per fermare a fine giro.");return}playAll()}
@@ -436,6 +436,24 @@ function undoSel(redo){if(!ready)return;const i=G.sel,L=G.loops[i];
  if(redo?!L.redo:!L.undo){flashHint(redo?"Niente da ripetere.":"Niente da annullare sul loop "+(i+1)+".");return}
  send({type:redo?"redo":"undo",i});dbgForget(i);if(L.fixed){L.fixed=false;L.dk="";L.org=null} // il core ha lasciato la versione corretta: si rifà
  flashHint((redo?"Ripristinato":"Annullato")+` l'ultimo strato del loop ${i+1}.`)}
+
+// ---------- Pezzo ripetuto (tasto V): IN e OUT a tempo sul loop selezionato ----------
+// Come il roll, ma il pezzo lo scegli tu: primo tocco IN, secondo OUT (tutti e due sul sedicesimo più vicino), e da OUT
+// il loop ripete il pezzo (lo fa il core, comando cut: il pezzo può essere già passato). Terzo tocco: esce subito, ed è
+// già a tempo perché la griglia ha continuato a contare. Gli altri loop vanno avanti.
+let CUT=null; // {i, s: IN in frame, p: lunghezza in frame (0 finché manca OUT)}
+const cutStep=()=>G.base/(G.beats*4),cutSnap=f=>Math.round(G.origin+Math.round((f-G.origin)/cutStep())*cutStep());
+function cutLen(p){const n=Math.round(p/cutStep());return n<4?["","1/16","1/8","3/16"][n]+" di battito":n===4?"1 battito":String(n/4).replace(".",",")+" battiti"}
+function cutButton(){if(!ready)return;
+ if(CUT&&CUT.p){const i=CUT.i;cutOff();flashHint(`Loop ${i+1}: <b>fine del pezzo</b>, torna normale a tempo.`);return}
+ const i=CUT?CUT.i:G.sel,L=G.loops[i];
+ if(!G.base||!G.running||!L.has){CUT=null;flashHint("Il pezzo si sceglie su un loop che suona: selezionalo (<b>Maiusc</b>+numero) mentre gira, poi <b>V</b>.");return}
+ const f=cutSnap(nowF());
+ if(!CUT){CUT={i,s:f,p:0};render();return}
+ const p=Math.max(f-CUT.s,Math.round(cutStep()));
+ if(p>=L.len){CUT=null;flashHint("Pezzo lungo quanto tutto il loop: niente da ripetere. Riprova con <b>V</b>, più corto.");return}
+ CUT.p=p;send({type:"cut",i,s:CUT.s,p});render()}
+function cutOff(){if(!CUT)return;if(CUT.p)send({type:"cut",i:CUT.i,end:nowF()});CUT=null;render()}
 
 // ---------- Sessione: salvataggio automatico dei loop in IndexedDB, ripresa all'apertura ----------
 // Si salva un attimo dopo l'ultima modifica (loop chiuso, sovraincisione, annulla, cancella, volume/pan/filtro).
@@ -606,6 +624,7 @@ function tick(){if(!ready)return;const f=nowF();let ch=false;
  if(G.stopAt&&f>=G.stopAt){stopAll();ch=true}
  // un loop cancellato perde anche i suoi effetti
  LDJ.forEach((D,i)=>{if(D&&!G.loops[i].has){dropLoopDJ(i);ch=true}});
+ if(CUT&&!G.loops[CUT.i].has){CUT=null;ch=true} // e il pezzo ripetuto (il core l'ha già tolto)
  G.loops.forEach(L=>{
   if(L.state==="closing"&&f>=L.end){if(L.q)renderRec(G.loops.indexOf(L));L.state="play";rotateBus();ch=true}
   if(L.pend&&f>=L.pend.at){L.muted=L.pend.muted;L.pend=null;ch=true}});
@@ -1007,6 +1026,7 @@ addEventListener("keydown",e=>atEvent(e,()=>{
  if(k==="c")return toggleFxScope();
  if(k==="0")return stopAllFx();
  if(k==="n")return perfToggle();
+ if(k==="v")return cutButton();
  if(e.key==="Escape")return allNotesOff();
  if(e.key==="Backspace"){e.preventDefault();return undoSel(false)}
  if(e.key==="ArrowUp"){e.preventDefault();return stepFamily(1)}

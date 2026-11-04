@@ -149,3 +149,20 @@ const join=it=>{const d=new Float32Array(it.len);let o=0;for(const ch of it.chun
  // un loop muto resta allineato a uno che suona; a velocità normale nessuno scarto
  r=mk();r.cmd({type:'load',i:1,data:d,len,t0:0,vol:1,pan:0,fx:0});go(r,0,8);r.cmd({type:'rate',i:0,v:1.5});r.cmd({type:'rate',i:1,v:1.5});go(r,8*N,50);ok(r.loops[0].ph===r.loops[1].ph&&r.loops[0].ph>0,'loop muto e loop che suona restano allineati');
  r=mk();go(r,0,8);ok(!r.loops[0].ph&&r.loops[0].rs===1,'a velocità normale nessuno scarto')}
+// pezzo ripetuto (IN/OUT): da s+p il loop ripete [s, s+p) sulla griglia, con dissolvenze; all'uscita torna subito a tempo
+{const len=4000,d=new Float32Array(len);for(let j=0;j<len;j++)d[j]=.1+.8*j/len; // ogni indice ha il suo valore
+ const mk=()=>{const r=new LoopCore(sr);r.cmd({type:'load',i:0,data:d,len,t0:0,vol:1,pan:0,fx:0});r.cmd({type:'gate',i:0,on:1,frame:0});return r};
+ const go=(r,F0,to,o=[])=>{const b=new Float32Array(N);for(let F=F0;F<to;F+=N){r.process([null,null,null],b,F,N);o.push(...b)}return o};
+ const X=new LoopCore(sr).XF,err=(x,F0,want)=>{let e=0;for(let k=0;k<x.length;k++){const w=want(F0+k);if(w!=null)e=Math.max(e,Math.abs(x[k]-w))}return e};
+ const inPiece=(F,s,p)=>{const q=(F-s-p)%p;return q<X+2?null:d[(s+q)%len]};
+ let r=mk(),x=go(r,0,1024);r.cmd({type:'cut',i:0,s:1000,p:500});x=go(r,1024,4992,x);
+ let e1=err(x.slice(800,1500),800,F=>d[F%len]),e2=err(x.slice(1500),1500,F=>inPiece(F,1000,500)),jump=0;
+ for(let k=300;k<x.length;k++)jump=Math.max(jump,Math.abs(x[k]-x[k-1]));
+ ok(e1<1e-6&&e2<1e-6,'pezzo: prima di OUT normale, poi ripete [1000, 1500) ('+e2.toExponential(1)+')');
+ ok(jump<.8*500/len/X*1.2+.001,'pezzo: niente salti alle riprese (passo massimo '+jump.toFixed(4)+')');
+ r.cmd({type:'cut',i:0,end:5100});x=go(r,4992,6016);
+ ok(err(x,4992,F=>F<5100?inPiece(F,1000,500):F>=5100+X?d[F%len]:null)<1e-6&&!r.loops[0].ct,'pezzo: all\'uscita di nuovo sulla griglia');
+ // OUT arrivato in ritardo (s+p già passato): entra subito, dal punto del pezzo dove sarebbe stato, con dissolvenza
+ r=mk();go(r,0,2048);r.cmd({type:'cut',i:0,s:1000,p:500});x=go(r,2048,3072);jump=0;for(let k=1;k<x.length;k++)jump=Math.max(jump,Math.abs(x[k]-x[k-1]));
+ ok(err(x,2048,F=>F>=2048+X?inPiece(F,1000,500):null)<1e-6&&jump<.2/X*1.5,'pezzo: OUT in ritardo entra senza salti');
+ r.cmd({type:'clear',i:0});go(r,3072,3200);ok(!r.loops[0].ct,'cancella toglie il pezzo')}

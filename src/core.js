@@ -21,7 +21,8 @@ class LoopCore{
  // orig: il loop com'era prima di uno swap che lo tiene da parte; xb/xn: buffer di prima e dissolvenza in corso
  // rate: velocità di lettura (1 = normale, manopola 4), rs smussata, ph quanto la lettura è avanti (+) o indietro (−) rispetto alla griglia;
  // home: frame in cui torna sulla griglia, ho e hn: posizione di prima e dissolvenza in corso
- fresh(){return{rate:1,rs:1,ph:0,home:0,ho:0,hn:0,orig:null,xb:null,xn:0,buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,hp:0,hs:0,h1:0,h2:0,wid:0,ws:0,wd:null,wp:0,pg:null,ver:0,sv:0,rec:null,dub:null,cp:null,tails:[],pq:[],undo:[],redo:[]}}
+ // ct: pezzo ripetuto (comando cut), vedi vsRead
+ fresh(){return{ct:null,rate:1,rs:1,ph:0,home:0,ho:0,hn:0,orig:null,xb:null,xn:0,buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,hp:0,hs:0,h1:0,h2:0,wid:0,ws:0,wd:null,wp:0,pg:null,ver:0,sv:0,rec:null,dub:null,cp:null,tails:[],pq:[],undo:[],redo:[]}}
  cmd(c){this.q.push(c)}
  mod(a,n){return((a%n)+n)%n}
  snap(L){return{buf:L.buf,len:L.len,t0:L.t0}}
@@ -71,13 +72,16 @@ class LoopCore{
    case "hp":L.hp=Math.max(0,Math.min(2000,c.v));break;
    case "wid":this.setWid(L,c.v);break;
    case "rate":L.rate=c.v;L.home=c.home||0;break;
-   case "shift":for(const o of this.loops){o.t0+=c.delta;for(const s of o.undo)s.t0+=c.delta;for(const s of o.redo)s.t0+=c.delta}break;
+   // pezzo ripetuto: s e p in frame della griglia (IN e lunghezza); da s+p il loop ripete [s, s+p). end: frame in cui
+   // torna a leggere normalmente (la griglia ha continuato a contare, quindi è subito a tempo)
+   case "cut":if(c.p>0)L.ct={s:c.s,p:c.p,end:Infinity,on:false};else if(L.ct)L.ct.end=c.end??F0;break;
+   case "shift":for(const o of this.loops){o.t0+=c.delta;if(o.ct){o.ct.s+=c.delta;o.ct.end+=c.delta}for(const s of o.undo)s.t0+=c.delta;for(const s of o.redo)s.t0+=c.delta}break;
    // batteria (app.js): il loop suona un altro contenuto da frame, con una dissolvenza di XF. keep tiene da parte quello
    // di prima (orig) la prima volta; data null rimette orig. La lunghezza può cambiare (una batteria di 4 battute su un giro di 1)
    case "swap":{if(!L.buf)break;this.cpDone(L);let nb=c.data,len=nb?nb.length:0;
     if(nb){if(c.keep&&!L.orig)L.orig={buf:L.buf,len:L.len}}else if(L.orig){nb=L.orig.buf;len=L.orig.len;L.orig=null}else break;
     L.xb=L.buf;L.xn=this.XF;L.buf=nb;L.len=len;L.ver++;this.state(c.i);break}
-   case "clear":L.ph=0;L.rs=L.rate;L.orig=null;this.cpDone(L);if(L.buf)this.push(L,this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;L.ver++;this.state(c.i);break;
+   case "clear":L.ct=null;L.ph=0;L.rs=L.rate;L.orig=null;this.cpDone(L);if(L.buf)this.push(L,this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;L.ver++;this.state(c.i);break;
    case "undo":case "redo":{
     this.cpDone(L);L.orig=null;L.dub=null;L.tails=[];L.pq=[];const from=c.type==="undo"?L.undo:L.redo,to=c.type==="undo"?L.redo:L.undo;
     if(from.length){to.push(this.snap(L));const s=from.pop();L.buf=s.buf;L.len=s.len;L.t0=s.t0;L.ver++}
@@ -113,8 +117,18 @@ class LoopCore{
  lerp(b,q,len){const i=Math.floor(q),f=q-i,j=i+1===len?0:i+1;return b[i]+(b[j]-b[i])*f}
  vsRead(L,F0,n){if(this.vs.length<n)this.vs=new Float32Array(n);
   if(L.home&&L.home<F0+n){L.ho=L.ph;L.hn=this.XF;L.ph=(F0-L.home)*(L.rate-1);L.rs=L.rate;L.home=0} // home sta dentro il blocco: a velocità ≠ 1 la lettura passa da lì
-  const o=this.vs,b=L.buf,len=L.len,rt=L.rate,RC=this.RC,base=F0-L.t0;let r=L.rs,ph=L.ph,q=this.mod(base+ph,len);
-  for(let k=0;k<n;k++){let x=this.lerp(b,q,len);if(r<.12)x*=r/.12;
+  const o=this.vs,b=L.buf,len=L.len,rt=L.rate,RC=this.RC,base=F0-L.t0,X=this.XF;let r=L.rs,ph=L.ph,q=this.mod(base+ph,len),C=L.ct;
+  for(let k=0;k<n;k++){let x;
+   // pezzo ripetuto: uscendo si torna alla lettura normale con una dissolvenza dal punto del pezzo in cui si era
+   if(C&&F0+k>=C.end){if(C.on){L.ho=C.m+1-base-k;L.hn=X}L.ct=C=null}
+   // dalla fine del pezzo (s+p) si legge s + (posizione − (s+p)) mod p. A ogni ripresa dissolvenza dalla continuazione
+   // (quello che c'era dopo il pezzo), all'entrata dalla lettura normale: niente clic
+   if(C&&F0+k>=C.s+C.p){const d=this.mod(base+k+ph-(C.s+C.p-L.t0),C.p),m=C.s-L.t0+d;
+    if(!C.on){C.on=true;if(d>=X){L.ho=ph;L.hn=X}} // entrando proprio a s+p la dissolvenza della ripresa basta
+    x=this.lerp(b,this.mod(m,len),len);
+    if(d<X){const y=this.lerp(b,this.mod(m+C.p,len),len);x=y+(x-y)*d/X}C.m=m}
+   else x=this.lerp(b,q,len);
+   if(r<.12)x*=r/.12;
    if(L.hn>0){const w=L.hn--/this.XF;x+=(this.lerp(b,this.mod(base+k+L.ho,len),len)-x)*w}
    o[k]=x;q+=r;if(q>=len)q-=len;ph+=r-1;r+=(rt-r)*RC}
   L.rs=r;L.ph=ph}
@@ -143,7 +157,7 @@ class LoopCore{
    if(L.pq.length){L.pq=L.pq.filter(P=>{if(P.at>=F1)return true;this.cpDone(L);const d=P.data;let p=this.mod(P.start,len);
      for(let k=0;k<d.length;k++){b[p]+=d[k];if(++p===len)p=0}L.ver++;this.peaks(i);return false})}
    L.ps+=(L.pan-L.ps)*sm;L.fs+=(L.fx-L.fs)*sm;L.hs+=(L.hp-L.hs)*sm;L.ws+=(L.wid-L.ws)*sm;
-   const VS=L.rate!==1||L.rs!==1||L.ph!==0||L.home||L.hn>0;if(VS){this.vsRead(L,F0,n);L.xn=0;L.xb=null}
+   const VS=L.ct||L.rate!==1||L.rs!==1||L.ph!==0||L.home||L.hn>0;if(VS){this.vsRead(L,F0,n);L.xn=0;L.xb=null}
    const rb=VS?this.vs:b,rl=VS?n:len; // da dove legge: a velocità variabile il blocco è già pronto
    if(g>1e-5||target>0){let p=VS?0:this.mod(F0-L.t0,len);
     const oL=outs?outs[i][0]:out,oR=outs?outs[i][1]:outR;

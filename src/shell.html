@@ -102,6 +102,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 .wv svg{position:absolute;inset:0;width:100%;height:100%;display:block}
 .wave{stroke:var(--c);stroke-width:1.5;fill:none;vector-effect:non-scaling-stroke}
 .loop[data-c="off"] .wave{opacity:.45}
+.cutr{position:absolute;top:0;bottom:0;min-width:2px;background:color-mix(in srgb,var(--arm) 30%,transparent);border-left:2px solid var(--arm)}
 .rprog{position:absolute;inset:0;background:color-mix(in srgb,var(--c) 22%,transparent);border-right:2px solid var(--c);transform:translateX(-102%);will-change:transform}
 
 /* suoni: famiglia a sinistra, suoni a destra. Se i suoni aggiunti non ci stanno scorre solo questo elenco */
@@ -274,6 +275,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <button class="small" id="undoBtn" title="Annulla l'ultimo strato (◀ sull'Axiom)">◀ ANNULLA</button>
         <button class="small" id="redoBtn" title="Ripristina (▶ sull'Axiom)">RIPETI ▶</button>
         <button class="small" id="qBtn" title="Rimette a tempo le note registrate (Q sul PC)">QUANTIZZA 1/16</button>
+        <button class="small" id="cutBtn" title="Ripete un pezzo del loop selezionato: primo tocco IN, secondo OUT, terzo esce (tasto V sul PC)">↻ PEZZO: IN</button>
         <button class="small" id="perfBtn" title="Registra tutto quello che esce e lo salva in un WAV (tasto N sul PC)">● REGISTRA ESIBIZIONE</button>
       </div>
     </section>
@@ -364,7 +366,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>Manopole 1–8</td><td>Secondo il modo scelto coi pulsanti MANOPOLE in basso (o tasto M): <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, <b>Effetti DJ</b> = effetti su tutto il mix o sul loop selezionato: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco (delay a tempo, sul quarto) · 3 riverbero · 4 <b>velocità</b> (al centro normale; a sinistra i loop rallentano e scendono di tono come un disco frenato, tutta a sinistra = fermo; a destra accelerano e salgono, tutta a destra = il doppio; le note che suoni restano normali. Tornando al centro riprendono a tempo sull'1) · 5 crusher · 6 wobble (filtro che si apre e chiude a tempo: girando 1/4, 1/8, terzine, 1/16; tutta a sinistra = spento) · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera (sul singolo loop: volume del loop). Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Dopo un cambio di modo, di loop o di ambito una manopola non salta: agisce quando passa dal valore attuale (in alto compare fin dove girarla).</td></tr>
       </table>
       <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
-      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>C</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>N</kbd> registra esibizione · <kbd>B</kbd> drop / build-up · <kbd>Maiusc</kbd>+<kbd>1</kbd>–<kbd>8</kbd> seleziona il loop · <kbd>Spazio</kbd> play/stop · <kbd>Esc</kbd> spegne le note · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
+      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>C</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>N</kbd> registra esibizione · <kbd>V</kbd> pezzo ripetuto (IN, OUT, esci) · <kbd>B</kbd> drop / build-up · <kbd>Maiusc</kbd>+<kbd>1</kbd>–<kbd>8</kbd> seleziona il loop · <kbd>Spazio</kbd> play/stop · <kbd>Esc</kbd> spegne le note · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
       <div><button class="small" id="diagStart">DIAGNOSTICA MIDI</button></div>
       <pre id="diag">—</pre>
     </section>
