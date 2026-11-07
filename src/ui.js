@@ -45,7 +45,7 @@ function build(){
  $("#fxScopeBtn").onclick=toggleFxScope;$("#fxStopBtn").onclick=stopAllFx;
  $("#tel").onclick=telQR;$("#telQR").onclick=()=>$("#telQR").hidden=true;
  $("#cutBtn").addEventListener("pointerdown",e=>{e.preventDefault();atEvent(e,cutButton)});
- $("#dubBtn").onclick=dubButton;$("#qBtn").onclick=cycleQuant;$("#perfBtn").onclick=perfToggle;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
+ $("#dubBtn").onclick=dubButton;$("#bpmDn").onclick=()=>tempoStep(-1);$("#bpmUp").onclick=()=>tempoStep(1);$("#qBtn").onclick=cycleQuant;$("#perfBtn").onclick=perfToggle;$("#undoBtn").onclick=()=>undoSel(false);$("#redoBtn").onclick=()=>undoSel(true);
  $("#openSettings").onclick=()=>{$("#settings").hidden=false;showDelay()};$("#closeSettings").onclick=closeSettings;
  $("#settings").addEventListener("pointerdown",e=>{if(e.target.id==="settings")closeSettings()});
  $("#openHelp").onclick=()=>{$("#help").hidden=false};$("#closeHelp").onclick=closeSettings;
@@ -76,6 +76,7 @@ function hint(){
  if((i=n("rec"))>=0)return G.loops[i].first?[`<b>Registro il primo loop.</b> Ripremi il pad ${i+1} nel punto esatto in cui deve ricominciare.`,"rec"]:[`<b>Registro il loop ${i+1}.</b> Ripremi il pad ${i+1} quando hai finito: la lunghezza si aggancia da sola.`,"rec"];
  if((i=n("closing"))>=0)return[`<b>Loop ${i+1}:</b> chiudo alla fine del giro, continua a suonare.`,"rec"];
  if((i=n("dub"))>=0)return[`<b>Sovraincisione sul loop ${i+1}.</b> Suona sopra, premi ● per smettere.`,"dub"];
+ if(TEMPO.want)return[`<b>Tempo ${Math.round(bpm())} → ${TEMPO.want} bpm</b>, stessa intonazione: `+(TEMPO.busy?`preparo i loop, ${G.running?"entra sul prossimo 1":"entra subito"}…`:"ancora <b>−</b> o <b>+</b> per regolarlo."),"arm"];
  if(CUT&&G.running)return CUT.p?[`<b>Loop ${CUT.i+1}: ripete il pezzo</b> (${cutLen(CUT.p)}). <b>V</b> per uscire: torna normale, a tempo.`,"dub"]:
   [`<b>IN</b> sul loop ${CUT.i+1}. Premi <b>V</b> di nuovo dove finisce il pezzo: da lì si ripete.`,"arm"];
  if(!anyHas())return[START_HINT,"off"];
@@ -144,6 +145,7 @@ function render(){
  $("#dropBtn").disabled=!G.running;$("#dropBtn").textContent=building?"▶ LASCIA: DROP":G.drop?"▶ RIENTRA":"▶ BREAK";$("#dropBtn").classList.toggle("on",G.drop||building||!!G.dropAt);
  $("#dubBtn").textContent=G.loops[G.sel].state==="dub"?`● FINE (loop ${G.sel+1})`:`● SOVRAINCIDI ${G.sel+1}`;
  $("#dubBtn").classList.toggle("on",G.loops[G.sel].state==="dub");
+ $("#bpmDn").disabled=$("#bpmUp").disabled=!G.base;$("#info").classList.toggle("on",!!TEMPO.want);
  $("#info").textContent=G.base?`${Math.round(bpm())} bpm · ${G.beats/4>=1?G.beats/4+" batt.":G.beats+" mov."}`:"giro libero";
  {const m=Math.floor(perfSecs()/60),sc=Math.floor(perfSecs()%60);$("#perfBtn").textContent=perf?`■ FERMA E SALVA ${m}:${String(sc).padStart(2,"0")}`:"● REGISTRA ESIBIZIONE";$("#perfBtn").classList.toggle("on",!!perf)}
  $("#tel").hidden=!tel.on;

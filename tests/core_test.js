@@ -182,3 +182,25 @@ const join=it=>{const d=new Float32Array(it.len);let o=0;for(const ch of it.chun
  // a velocità normale la sovraincisione resta quella di sempre (sulla griglia)
  const r=new LoopCore(sr);r.cmd({type:'load',i:0,data:z,len,t0:0,vol:1,pan:0,fx:0});const o=new Float32Array(N),inp=new Float32Array(N);inp[7]=1;
  r.process([null,null,null],o,0,N);r.cmd({type:'dub',i:0,bus:0});r.process([inp,null,null],o,N,N);ok(r.loops[0].buf[N+7]===1&&r.loops[0].dub.wq===null,'a velocità normale: sulla griglia, campione per campione')}
+// cambio di tempo: da frame X il loop suona la versione nuova dallo stesso punto del giro (p → p·len'/len), con dissolvenza;
+// i frame già fissati dopo X si stirano; se il loop è cambiato dopo la copia (ver) o si registra, non cambia niente
+{const len=4000,d=new Float32Array(len);for(let j=0;j<len;j++)d[j]=j/len; // rampa: il valore dice dove legge
+ const mk=()=>{const r=new LoopCore(sr);r.exec({type:'load',i:0,data:d,len,t0:500,vol:1,pan:0,fx:0},0);const L=r.loops[0];L.g=1;L.gt=1;r.msgs=[];return r};
+ const go=(r,F0,to,o=[])=>{const b=new Float32Array(N);for(let F=F0;F<to;F+=N){r.process([null,null,null],b,F,N);o.push(...b)}return o};
+ let r=mk();go(r,0,1024);const len2=3000,d2=new Float32Array(len2);for(let j=0;j<len2;j++)d2[j]=j/len2,X=2600;
+ r.cmd({type:'gate',i:0,on:0,frame:5000});r.cmd({type:'vol',i:0,v:1,frame:9000});
+ r.cmd({type:'tempo',id:7,frame:X,r:.75,items:[{i:0,data:d2,ver:r.loops[0].ver}]});
+ const x=go(r,1024,4096),m=r.msgs.find(q=>q.type==='tempo'),L=r.loops[0];
+ ok(m&&m.ok&&m.frame===X&&L.len===len2&&L.buf===d2&&L.undo.length===0,'tempo: il loop passa alla versione nuova ('+L.len+' campioni)');
+ const want=F=>F<X-N?((F-500)%len)/len:F>=X+N?((((F-X)+Math.round((X-500)%len*.75))%len2)/len2):null;let e=0;
+ for(let k=0;k<x.length;k++){const w=want(1024+k);if(w!=null)e=Math.max(e,Math.abs(x[k]-w))}
+ ok(e<1e-6,'tempo: prima legge il giro di prima, dopo lo stesso punto del giro nella versione nuova (scarto '+e.toExponential(1)+')');
+ let jump=0;for(let k=1;k<x.length;k++){const F=1024+k;if(F>X-2*N&&F<X+2*N&&Math.abs(x[k]-x[k-1])<.5)jump=Math.max(jump,Math.abs(x[k]-x[k-1]))}
+ ok(jump<.01,'tempo: niente salti al cambio (passo massimo '+jump.toFixed(4)+')');
+ ok(r.q.some(c=>c.type==='gate'&&c.frame===X+Math.round((5000-X)*.75))&&r.q.some(c=>c.type==='vol'&&c.frame===X+Math.round((9000-X)*.75)),'tempo: stop e comandi già fissati dopo X si stirano con la griglia');
+ // ver diversa (una nota è arrivata dopo la copia): non cambia niente
+ r=mk();go(r,0,1024);const v0=r.loops[0].ver;r.cmd({type:'fill',i:0,data:new Float32Array(len)});go(r,1024,1152);
+ r.cmd({type:'tempo',id:8,frame:1200,r:.75,items:[{i:0,data:d2,ver:v0}]});go(r,1152,1408);
+ let q=r.msgs.find(q=>q.type==='tempo');ok(q&&!q.ok&&!q.busy&&r.loops[0].len===len,'tempo: loop cambiato dopo la copia, niente cambio (ok false)');
+ r=mk();go(r,0,1024);r.cmd({type:'dub',i:0,bus:0});go(r,1024,1152);r.cmd({type:'tempo',id:9,frame:1200,r:.75,items:[{i:0,data:d2,ver:r.loops[0].ver}]});go(r,1152,1408);
+ q=r.msgs.find(q=>q.type==='tempo');ok(q&&!q.ok&&q.busy&&r.loops[0].len===len,'tempo: durante la sovraincisione niente cambio (busy)')}

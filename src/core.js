@@ -21,11 +21,12 @@ class LoopCore{
  // ps/fs sono i valori smussati, z1/z2 gli stati del filtro. ver cresce a ogni modifica del buffer, sv è la versione già salvata.
  // cp: copia per l'annulla della sovraincisione in corso, fatta a pezzi (vedi cpStep)
  // hp: passa-alto del mix automatico in Hz (0 = spento), wid: apertura stereo 0…1; hs/ws smussati, h1/h2 stati, wd anello del ritardo
- // orig: il loop com'era prima di uno swap che lo tiene da parte; xb/xn: buffer di prima e dissolvenza in corso
+ // orig: il loop com'era prima di uno swap che lo tiene da parte; xb/xn: buffer di prima e dissolvenza in corso, xd: di quanto
+ // xb va letto più avanti (cambio di tempo: lo stesso istante sta in un altro punto del buffer di prima)
  // rate: velocità di lettura (1 = normale, manopola 4), rs smussata, ph quanto la lettura è avanti (+) o indietro (−) rispetto alla griglia;
  // home: frame in cui torna sulla griglia, ho e hn: posizione di prima e dissolvenza in corso
  // ct: pezzo ripetuto (comando cut), vedi vsRead
- fresh(){return{ct:null,rate:1,rs:1,ph:0,home:0,ho:0,hn:0,orig:null,xb:null,xn:0,buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,hp:0,hs:0,h1:0,h2:0,wid:0,ws:0,wd:null,wp:0,pg:null,ver:0,sv:0,rec:null,dub:null,cp:null,tails:[],pq:[],undo:[],redo:[]}}
+ fresh(){return{ct:null,rate:1,rs:1,ph:0,home:0,ho:0,hn:0,orig:null,xb:null,xn:0,xd:0,buf:null,len:0,t0:0,g:0,gt:0,vol:.8,pan:0,fx:0,ps:0,fs:0,z1:0,z2:0,hp:0,hs:0,h1:0,h2:0,wid:0,ws:0,wd:null,wp:0,pg:null,ver:0,sv:0,rec:null,dub:null,cp:null,tails:[],pq:[],undo:[],redo:[]}}
  cmd(c){this.q.push(c)}
  mod(a,n){return((a%n)+n)%n}
  snap(L){return{buf:L.buf,len:L.len,t0:L.t0}}
@@ -92,7 +93,21 @@ class LoopCore{
    // di prima (orig) la prima volta; data null rimette orig. La lunghezza può cambiare (una batteria di 4 battute su un giro di 1)
    case "swap":{if(!L.buf)break;this.cpDone(L);let nb=c.data,len=nb?nb.length:0;
     if(nb){if(c.keep&&!L.orig)L.orig={buf:L.buf,len:L.len}}else if(L.orig){nb=L.orig.buf;len=L.orig.len;L.orig=null}else break;
-    L.xb=L.buf;L.xn=this.XF;L.buf=nb;L.len=len;L.ver++;this.state(c.i);break}
+    L.xb=L.buf;L.xn=this.XF;L.xd=0;L.buf=nb;L.len=len;L.ver++;this.state(c.i);break}
+   // cambio di tempo (app.js, sezione Tempo): da frame i loop suonano la versione stirata dal thread principale, ognuno dallo
+   // stesso punto del suo giro (la posizione p diventa p·len'/len), con la dissolvenza dello swap. Vale solo se ogni loop è ancora
+   // quello stirato (ver) e niente ci sta scrivendo (registrazione, sovraincisione, code, note in arrivo): se no non cambia niente
+   // (ok false) e Giro riprova. Gli strati di annulla erano al tempo di prima: si perdono. I frame già fissati dopo frame (stop e
+   // ripartenze, ritorno sulla griglia, comandi in coda) si stirano con la griglia: r = base nuova / base vecchia
+   case "tempo":{const X=c.frame,r=c.r,its=c.items,busy=this.loops.some(o=>o.rec||o.dub);
+    const ok=!busy&&this.loops.every((o,j)=>!o.pq.length&&!o.tails.length&&(!o.buf||its.some(it=>it.i===j&&it.ver===o.ver)));
+    if(ok){const sc=f=>f>X?X+Math.round((f-X)*r):f;
+     for(const it of its){const L=this.loops[it.i],ol=L.len,len=it.data.length,t0=X-Math.round(this.mod(X-L.t0,ol)*len/ol)%len;
+      L.xb=L.buf;L.xn=this.XF;L.xd=this.mod(this.mod(F0-L.t0,ol)-this.mod(F0-t0,len),ol);
+      L.buf=it.data;L.len=len;L.t0=t0;L.ph*=len/ol;L.ct=null;L.orig=null;L.cp=null;L.undo=[];L.redo=[];L.ver++;this.state(it.i)}
+     for(const L of this.loops){if(L.home)L.home=sc(L.home);if(L.pg)L.pg.frame=sc(L.pg.frame)}
+     for(const q of this.q)if(q.frame!=null)q.frame=sc(q.frame)}
+    this.msgs.push({type:"tempo",id:c.id,ok,busy,frame:X,vers:this.loops.map(o=>o.ver)});break}
    case "clear":L.ct=null;L.ph=0;L.rs=L.rate;L.orig=null;this.cpDone(L);if(L.buf)this.push(L,this.snap(L));L.redo=[];L.pq=[];L.buf=null;L.dub=null;L.rec=null;L.tails=[];L.g=0;L.gt=0;L.pg=null;L.ver++;this.state(c.i);break;
    case "undo":case "redo":{
     this.cpDone(L);L.orig=null;L.dub=null;L.tails=[];L.pq=[];const from=c.type==="undo"?L.undo:L.redo,to=c.type==="undo"?L.redo:L.undo;
@@ -197,7 +212,7 @@ class LoopCore{
      // apertura stereo: a sinistra il suono più la sua copia ritardata, a destra meno la copia. Sommati tornano
      // il suono di partenza (in mono non cambia niente), nw tiene uguale il livello
      const nw=1/Math.sqrt(1+W*W),wl=gl*nw,wr=gr*nw;
-     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;let x=rb[p];if(XB&&L.xn>0){const w=L.xn--/this.XF;x+=(XB[p%xl]-x)*w}x*=g;
+     for(let k=0;k<n;k++){g+=(target-g)*this.ramp;let x=rb[p];if(XB&&L.xn>0){const w=L.xn--/this.XF;x+=(XB[(p+L.xd)%xl]-x)*w}x*=g;
       if(F){const v3=x-z2,v1=F.a1*z1+F.a2*v3,v2=z2+F.a2*z1+F.a3*v3;z1=2*v1-z1;z2=2*v2-z2;x=F.hp?x-kq*v1-v2:v2}
       if(H){const v3=x-h2,v1=H.a1*h1+H.a2*v3,v2=h2+H.a2*h1+H.a3*v3;h1=2*v1-h1;h2=2*v2-h2;x=x-H.k*v1-v2}
       if(W){const d=wd[(wp-D)&M]*W;wd[wp]=x;wp=(wp+1)&M;oL[k]+=(x+d)*wl;oR[k]+=(x-d)*wr}
@@ -227,6 +242,7 @@ class LoopCore{
    if(L.buf!==C.src){J.cur=null;if(L.buf)J.q.unshift(C.i);continue}
    const n=Math.min(budget,C.src.length-C.off);C.chunks.push(C.src.slice(C.off,C.off+n));C.off+=n;budget-=n;
    // se il loop cambia durante la copia, ver resta diverso da sv e il prossimo salvataggio lo ricopia
-   if(C.off>=C.src.length){J.items.push({i:C.i,len:L.len,t0:L.t0,chunks:C.chunks});if(!J.exp)L.sv=C.ver;J.cur=null}}
+   // ver: la versione da cui è partita la copia (il cambio di tempo controlla che sia ancora quella)
+   if(C.off>=C.src.length){J.items.push({i:C.i,len:L.len,t0:L.t0,ver:C.ver,chunks:C.chunks});if(!J.exp)L.sv=C.ver;J.cur=null}}
   if(!J.cur&&!J.q.length){this.dumps.shift();this.msgs.push({type:"dump",exp:J.exp,tag:J.tag,items:J.items,has:this.loops.map(o=>!!o.buf)})}}
 }

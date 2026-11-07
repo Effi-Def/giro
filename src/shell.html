@@ -44,6 +44,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
 #clock{font:500 15px/1.1 var(--f-mono);font-variant-numeric:tabular-nums}
 #clock:empty{display:none}
 #info{font:clamp(12.5px,1.5vh,15px)/1.2 var(--f-mono);color:var(--dim);white-space:nowrap}
+#info.on{color:var(--arm)}
+/* − e + del tempo: sempre al loro posto, spenti finché non c'è il primo giro */
+.tempo{display:flex;align-items:center;gap:5px}
+.tb{background:none;border:1px solid var(--line);border-radius:5px;min-width:1.9em;height:1.2em;padding:0;font:600 clamp(12.5px,1.5vh,15px)/1 var(--f-mono);color:var(--dim)} /* alti quanto la riga dei bpm: con l'orologio sopra la barra non cresce */
+.tb:disabled{color:var(--faint)}
 .transport{display:flex;gap:8px}
 .big{background:var(--panel);border:1px solid var(--line);border-radius:9px;height:clamp(36px,5.6vh,46px);padding:0 14px;font:700 clamp(16px,2.4vh,20px)/1 var(--f-display);letter-spacing:.08em;white-space:nowrap}
 #playBtn{min-width:6.6em}
@@ -250,7 +255,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
   <header class="top">
     <div class="pulse">
       <div class="brand">GIRO</div>
-      <div class="meta"><span id="clock"></span><span id="info">giro libero</span></div>
+      <div class="meta"><span id="clock"></span><span class="tempo"><button class="tb" id="bpmDn" disabled title="Più lento, stessa intonazione (tasto −)" aria-label="Più lento">−</button><span id="info">giro libero</span><button class="tb" id="bpmUp" disabled title="Più veloce, stessa intonazione (tasto +)" aria-label="Più veloce">+</button></span></div>
       <div class="beat" id="beat" aria-hidden="true" hidden></div>
     </div>
     <div class="transport">
@@ -366,7 +371,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sel);outline-of
         <tr><td>Manopole 1–8</td><td>Secondo il modo scelto coi pulsanti MANOPOLE in basso (o tasto M): <b>Volume</b> = volume dei loop 1–8, <b>Pan</b> = sinistra/destra dei loop, <b>Effetti DJ</b> = effetti su tutto il mix o sul loop selezionato: 1 filtro (a sinistra più scuro, a destra più leggero, al centro spento) · 2 eco (delay a tempo, sul quarto) · 3 riverbero · 4 <b>velocità</b> (al centro normale; a sinistra i loop rallentano e scendono di tono come un disco frenato, tutta a sinistra = fermo; a destra accelerano e salgono, tutta a destra = il doppio; le note che suoni restano normali; ● sovraincide come su un nastro, a tempo con quello che senti. Tornando al centro riprendono a tempo sull'1) · 5 crusher · 6 wobble (filtro che si apre e chiude a tempo: girando 1/4, 1/8, terzine, 1/16; tutta a sinistra = spento) · 7 roll (girando: 1/4, 1/8, 1/16, 1/32; tutta a sinistra = spento) · 8 volume della tastiera (sul singolo loop: volume del loop). Con LED <b>Inst/FX</b> (se l'Axiom lo attiva) = filtro di ogni loop. Dopo un cambio di modo, di loop o di ambito una manopola non salta: agisce quando passa dal valore attuale (in alto compare fin dove girarla).</td></tr>
       </table>
       <p class="help">Giro funziona sia in modo MIDI (LED spenti) sia nei modi Volume, Pan e Inst/FX. Se una manopola non risponde, usa la diagnostica qui sotto e dimmi cosa compare.</p>
-      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>C</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>9</kbd> velocità normale · <kbd>N</kbd> registra esibizione · <kbd>V</kbd> pezzo ripetuto (IN, OUT, esci) · <kbd>B</kbd> drop / build-up · <kbd>Maiusc</kbd>+<kbd>1</kbd>–<kbd>8</kbd> seleziona il loop (e il suo suono) · <kbd>Spazio</kbd> play/stop · <kbd>Esc</kbd> spegne le note · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
+      <p class="help">Dal PC: <kbd>A</kbd>…<kbd>K</kbd> note (<kbd>Z</kbd>/<kbd>X</kbd> ottava) · <kbd>1</kbd>–<kbd>8</kbd> loop · <kbd>R</kbd> sovraincidi · <kbd>Q</kbd> quantizza · <kbd>M</kbd> manopole · <kbd>C</kbd> effetti su tutto / sul loop · <kbd>0</kbd> stop effetti · <kbd>9</kbd> velocità normale · <kbd>N</kbd> registra esibizione · <kbd>V</kbd> pezzo ripetuto (IN, OUT, esci) · <kbd>−</kbd> <kbd>+</kbd> tempo più lento / più veloce, stessa intonazione (sul prossimo 1, fino a ±15%) · <kbd>B</kbd> drop / build-up · <kbd>Maiusc</kbd>+<kbd>1</kbd>–<kbd>8</kbd> seleziona il loop (e il suo suono) · <kbd>Spazio</kbd> play/stop · <kbd>Esc</kbd> spegne le note · <kbd>Backspace</kbd> annulla · <kbd>↑</kbd><kbd>↓</kbd> suono.</p>
       <div><button class="small" id="diagStart">DIAGNOSTICA MIDI</button></div>
       <pre id="diag">—</pre>
     </section>
