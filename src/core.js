@@ -12,6 +12,9 @@ class LoopCore{
   this.WD=Math.round(sr*.012);this.WM=1;while(this.WM<=this.WD)this.WM*=2;this.WM--; // apertura stereo: ritardo di 12 ms, maschera dell'anello
   this.XF=Math.round(sr*.006); // dissolvenza quando un loop cambia contenuto (swap)
   this.vs=new Float32Array(4096);this.RC=1/(.12*sr); // lettura a velocità variabile; inerzia della velocità: 0,12 s, come un piatto
+  this.vq=new Float64Array(4096);this.gn=new Float32Array(4096); // posizioni lette in vsRead (la sovraincisione scrive lì), guadagni delle code
+  // dove leggeva ogni loop negli ultimi 1024 blocchi (inizio, posizione, velocità): mark lo chiede per una nota già suonata
+  this.HM=1023;this.hF=new Float64Array(this.NL*1024);this.hq=new Float64Array(this.NL*1024);this.hr=new Float32Array(this.NL*1024);this.hp=new Int32Array(this.NL);
   this.loops=[];for(let i=0;i<this.NL;i++)this.loops.push(this.fresh());
  }
  // pan: -1 sinistra … 1 destra; fx: filtro sull'uscita del loop, -1 passa-basso … 0 niente … 1 passa-alto.
@@ -59,7 +62,8 @@ class LoopCore{
    case "recEnd":if(L.rec){L.rec.end=c.end;L.rec.len=c.len;L.rec.t0=c.t0;L.rec.buf=c.buf}break;
    case "cancelRec":L.rec=null;break;
    case "dub":if(L.buf){this.cpDone(L);const s={buf:c.buf&&c.buf.length===L.len?c.buf:new Float32Array(L.len),len:L.len,t0:L.t0};this.push(L,s);
-    L.cp={dst:s.buf,p:this.mod(F0-(c.comp||0)-L.t0-4096,L.len),left:L.len};L.dub={bus:c.bus,comp:c.comp||0}}break;
+    // la copia parte poco prima di dove il loop legge, che a velocità diversa da 1 non è la griglia: lì scrive la sovraincisione
+    L.cp={dst:s.buf,p:Math.floor(this.mod(F0-(c.comp||0)-L.t0+L.ph-4096,L.len)),left:L.len};L.dub={bus:c.bus,comp:c.comp||0,wq:null,wx:0}}break;
    case "undub":if(L.dub){L.tails.push(this.tail(L.dub,F0));L.dub=null;this.state(c.i)}break;
    // note quantizzate: "fill" riempie un loop appena registrato, "pend" aggiunge una nota
    // di sovraincisione che diventa udibile solo quando la testina la raggiunge nel giro dopo
@@ -72,6 +76,14 @@ class LoopCore{
    case "hp":L.hp=Math.max(0,Math.min(2000,c.v));break;
    case "wid":this.setWid(L,c.v);break;
    case "rate":L.rate=c.v;L.home=c.home||0;break;
+   // dove leggeva il loop al frame di una nota (già suonata, o in questo blocco) e a che velocità: la nota quantizzata della
+   // sovraincisione va in quel punto del buffer (app.js, commitDubNote). q null: troppo vecchia, vale la griglia
+   case "mark":{let q=null,r=1;
+    if(L.buf){if(c.frame>=F0){q=this.mod(F0-L.t0+L.ph+(c.frame-F0)*L.rs,L.len);r=L.rs}
+     else{const o=c.i*(this.HM+1);let h=this.hp[c.i];
+      for(let k=0;k<=this.HM;k++,h=(h-1)&this.HM){const F=this.hF[o+h];if(F<=c.frame-4096)break;
+       if(F<=c.frame){q=this.mod(this.hq[o+h]+(c.frame-F)*this.hr[o+h],L.len);r=this.hr[o+h];break}}}}
+    this.msgs.push({type:"mark",i:c.i,id:c.id,q,r});break}
    // pezzo ripetuto: s e p in frame della griglia (IN e lunghezza); da s+p il loop ripete [s, s+p). end: frame in cui
    // torna a leggere normalmente (la griglia ha continuato a contare, quindi è subito a tempo)
    case "cut":if(c.p>0)L.ct={s:c.s,p:c.p,end:Infinity,on:false};else if(L.ct)L.ct.end=c.end??F0;break;
@@ -87,7 +99,20 @@ class LoopCore{
     if(from.length){to.push(this.snap(L));const s=from.pop();L.buf=s.buf;L.len=s.len;L.t0=s.t0;L.ver++}
     this.state(c.i);break}
   }}
- tail(src,F){return{bus:src.bus,comp:src.comp,from:F,until:F+this.TAIL}}
+ // grid: coda di una registrazione, scritta sulla griglia come la registrazione; quella di una sovraincisione continua dove scriveva
+ tail(src,F,grid){return{bus:src.bus,comp:src.comp,from:F,until:F+this.TAIL,grid:!!grid,wq:src.wq??null,wx:src.wx||0}}
+ // sovraincisione a nastro: col loop a velocità diversa da 1 (o fuori griglia, prima di tornarci) il campione k va dove il loop sta
+ // leggendo (vq), e l'ingresso si ricampiona (interpolazione lineare fra un campione e l'altro). Tornando a 1 la parte suonata resta
+ // a tempo col loop, più acuta e veloce se suonata sul loop rallentato. A nastro fermo non si scrive niente. W (la sovraincisione o
+ // la coda) tiene l'ultimo punto scritto, wq e wx, fra un blocco e l'altro; gn: guadagni per campione (code), cr: compensazione in campioni del buffer
+ tapeW(W,b,len,x,n,gn,cr){const vq=this.vq;let pq=W.wq,px=W.wx;
+  for(let k=0;k<n;k++){let q=vq[k]-cr;if(q<0)q+=len;const v=gn?x[k]*gn[k]:x[k];
+   if(pq!=null){let d=q-pq;if(d<-len/2)d+=len;
+    if(d>0&&d<64){let t=Math.floor(pq)+1-pq,j=Math.floor(pq)+1;if(j>=len)j-=len;
+     for(;t<=d;t+=1){b[j]+=px+(v-px)*t/d;if(++j===len)j=0}}
+    else if(d!==0){let j=Math.round(q);if(j>=len)j=0;b[j]+=v}} // salto (la lettura torna sulla griglia): niente interpolazione
+   pq=q;px=v}
+  W.wq=pq;W.wx=px}
  // il campione j della registrazione va all'indice (start + j − comp − t0) mod len; quello che avanza oltre
  // un giro si ripiega sull'inizio. Il primo giro si copia con set (copia nativa), solo l'eccedenza si somma a mano:
  // un ciclo su ogni campione, che qui gira una volta sola e quindi non viene mai ottimizzato, prendeva 12–25 ms
@@ -99,7 +124,7 @@ class LoopCore{
     while(k<m1){const p=(p0+j0+k)%len,s=Math.min(m1-k,len-p);b.set(c.subarray(k,k+s),p);k+=s}
     for(let p=(p0+j0+k)%len;k<m;k++){b[p]+=c[k];if(++p===len)p=0}}}
   this.push(L,this.snap(L));
-  L.buf=b;L.len=len;L.t0=R.t0;L.rec=null;L.orig=null;L.ver++;L.pq=[];L.tails=R.fill?[]:[this.tail(R,R.end)];
+  L.buf=b;L.len=len;L.t0=R.t0;L.rec=null;L.orig=null;L.ver++;L.pq=[];L.tails=R.fill?[]:[this.tail(R,R.end,true)];
   // il loop appena chiuso parte senza dissolvenza, in continuità con quello che hai appena suonato
   if(L.pg&&L.pg.on&&L.pg.frame<=R.end+256){L.gt=1;L.g=L.vol;L.pg=null}
   this.msgs.push({type:"done",i});this.state(i)}
@@ -115,7 +140,7 @@ class LoopCore{
  // se ne è allontanata, e gira anche a loop muto, così tutti i loop restano allineati fra loro. Quasi fermo il suono diventa
  // un valore costante: si abbassa prima. A home si torna sulla griglia con una dissolvenza dalla posizione di prima
  lerp(b,q,len){const i=Math.floor(q),f=q-i,j=i+1===len?0:i+1;return b[i]+(b[j]-b[i])*f}
- vsRead(L,F0,n){if(this.vs.length<n)this.vs=new Float32Array(n);
+ vsRead(L,F0,n){if(this.vs.length<n){this.vs=new Float32Array(n);this.vq=new Float64Array(n);this.gn=new Float32Array(n)}
   if(L.home&&L.home<F0+n){L.ho=L.ph;L.hn=this.XF;L.ph=(F0-L.home)*(L.rate-1);L.rs=L.rate;L.home=0} // home sta dentro il blocco: a velocità ≠ 1 la lettura passa da lì
   const o=this.vs,b=L.buf,len=L.len,rt=L.rate,RC=this.RC,base=F0-L.t0,X=this.XF;let r=L.rs,ph=L.ph,q=this.mod(base+ph,len),C=L.ct;
   for(let k=0;k<n;k++){let x;
@@ -130,7 +155,7 @@ class LoopCore{
    else x=this.lerp(b,q,len);
    if(r<.12)x*=r/.12;
    if(L.hn>0){const w=L.hn--/this.XF;x+=(this.lerp(b,this.mod(base+k+L.ho,len),len)-x)*w}
-   o[k]=x;q+=r;if(q>=len)q-=len;ph+=r-1;r+=(rt-r)*RC}
+   o[k]=x;this.vq[k]=q;q+=r;if(q>=len)q-=len;ph+=r-1;r+=(rt-r)*RC}
   L.rs=r;L.ph=ph}
  // out: uscita mono (o canale sinistro); outR facoltativo: se c'è l'uscita è stereo e vale il pan.
  // outs facoltativo: [[sinistra,destra],…] uno per loop; se c'è, ogni loop esce sul suo (per gli effetti del singolo loop)
@@ -158,6 +183,8 @@ class LoopCore{
      for(let k=0;k<d.length;k++){b[p]+=d[k];if(++p===len)p=0}L.ver++;this.peaks(i);return false})}
    L.ps+=(L.pan-L.ps)*sm;L.fs+=(L.fx-L.fs)*sm;L.hs+=(L.hp-L.hs)*sm;L.ws+=(L.wid-L.ws)*sm;
    const VS=L.ct||L.rate!==1||L.rs!==1||L.ph!==0||L.home||L.hn>0;if(VS){this.vsRead(L,F0,n);L.xn=0;L.xb=null}
+   {const h=this.hp[i]=(this.hp[i]+1)&this.HM,o=i*(this.HM+1)+h,vq=this.vq;this.hF[o]=F0; // per mark
+    if(VS){this.hq[o]=vq[0];this.hr[o]=n>1?this.mod(vq[n-1]-vq[0],len)/(n-1):L.rs}else{this.hq[o]=this.mod(F0-L.t0,len);this.hr[o]=1}}
    const rb=VS?this.vs:b,rl=VS?n:len; // da dove legge: a velocità variabile il blocco è già pronto
    if(g>1e-5||target>0){let p=VS?0:this.mod(F0-L.t0,len);
     const oL=outs?outs[i][0]:out,oR=outs?outs[i][1]:outR;
@@ -178,11 +205,14 @@ class LoopCore{
       if(++p===rl)p=0}
      L.z1=z1;L.z2=z2;L.h1=h1;L.h2=h2;L.wp=wp;if(L.xn<=0)L.xb=null}}
    L.g=g;
-   if(L.dub){const x=ins[L.dub.bus];if(x){let p=this.mod(F0-L.dub.comp-L.t0,len);for(let k=0;k<n;k++){b[p]+=x[k];if(++p===len)p=0}L.ver++}
+   if(L.dub){const D=L.dub,x=ins[D.bus];
+    if(x){if(VS)this.tapeW(D,b,len,x,n,null,D.comp*L.rs);else{D.wq=null;let p=this.mod(F0-D.comp-L.t0,len);for(let k=0;k<n;k++){b[p]+=x[k];if(++p===len)p=0}}L.ver++}
     if(peakNow)this.peaks(i)}
    if(L.tails.length){L.tails=L.tails.filter(T=>{const x=ins[T.bus];
-     if(x){let p=this.mod(F0-T.comp-L.t0,len);const span=T.until-T.from;
-      for(let k=0;k<n;k++){const f=F0+k;if(f>=T.from&&f<T.until){const w=1-(f-T.from)/span;b[p]+=x[k]*w*w}if(++p===len)p=0}L.ver++}
+     if(x){const span=T.until-T.from;
+      if(VS&&!T.grid){const gn=this.gn;for(let k=0;k<n;k++){const f=F0+k,w=f>=T.from&&f<T.until?1-(f-T.from)/span:0;gn[k]=w*w}this.tapeW(T,b,len,x,n,gn,T.comp*L.rs)}
+      else{T.wq=null;let p=this.mod(F0-T.comp-L.t0,len);
+       for(let k=0;k<n;k++){const f=F0+k;if(f>=T.from&&f<T.until){const w=1-(f-T.from)/span;b[p]+=x[k]*w*w}if(++p===len)p=0}}L.ver++}
      if(F1>=T.until){this.peaks(i);return false}return true})}
   }
   this.dumpStep();

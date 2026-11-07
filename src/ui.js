@@ -90,8 +90,10 @@ function speedNote(){const m=DJV[3],ls=G.loops.map((_,i)=>i).filter(i=>LDJ[i]&&L
   one>=0?`LOOP ${one+1} `+(a<-.97?"FERMO":al(a)):"LOOP "+ls.map(i=>i+1).join(", ")+" A VELOCITÀ DIVERSA";
  const how=alone&&a===1?"un'ottava sopra, a tempo dall'1":alone&&a===-.5?"un'ottava sotto, a tempo dall'1":"fuori tempo e stonati";
  // la manopola 4 arriva a quella velocità solo se comanda lei, altrimenti resta STOP EFFETTI
- const dj=knobMode==="dj",other=!m&&one>=0&&dj&&fxScope==="loop"&&G.sel!==one,knob4=dj&&(m?!ls.length&&fxScope==="mix":one>=0&&fxScope==="loop"&&G.sel===one);
- return`<b>${what}</b> ${how} · per tornare normale: ${knob4?"manopola 4 al centro":other?`seleziona il loop ${one+1}, poi manopola 4 al centro`:"tasto 0, STOP EFFETTI"}`}
+ // tasto centrale tenuto: basta se rimette a 1 tutto quello che è girato (il mix e il loop selezionato, speedReset)
+ const dj=knobMode==="dj",other=!m&&one>=0&&G.sel!==one,knob4=dj&&(m?!ls.length&&fxScope==="mix":one>=0&&fxScope==="loop"&&G.sel===one);
+ const ctr=!ls.length||ls.length===1&&G.sel===one,C="tasto centrale tenuto (9)";
+ return`<b>${what}</b> ${how} · per tornare normale: ${knob4?"manopola 4 al centro":other?`seleziona il loop ${one+1}, poi ${C}`:ctr?C:"tasto 0, STOP EFFETTI"}`}
 // sul pad: la velocità di quel loop, che non si vede più nella striscia appena ne selezioni un altro
 function padFx(i){const D=LDJ[i],a=D?D.v[3]:0;return a?" · "+(a<-.97?"FERMO":Math.round((1+a)*100)+"%"):fxActive(D)?" · FX":""}
 // una manopola sulla striscia: etichetta, valore (da sinistra, o dal centro con c), testo, se è girata, se comanda un loop vuoto

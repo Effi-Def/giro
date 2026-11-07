@@ -166,3 +166,19 @@ const join=it=>{const d=new Float32Array(it.len);let o=0;for(const ch of it.chun
  r=mk();go(r,0,2048);r.cmd({type:'cut',i:0,s:1000,p:500});x=go(r,2048,3072);jump=0;for(let k=1;k<x.length;k++)jump=Math.max(jump,Math.abs(x[k]-x[k-1]));
  ok(err(x,2048,F=>F>=2048+X?inPiece(F,1000,500):null)<1e-6&&jump<.2/X*1.5,'pezzo: OUT in ritardo entra senza salti');
  r.cmd({type:'clear',i:0});go(r,3072,3200);ok(!r.loops[0].ct,'cancella toglie il pezzo')}
+// sovraincisione a nastro: a velocità 0,8 e 1,25 l'ingresso va dove il loop sta leggendo, ricampionato; mark dice dove leggeva
+{const len=8000,z=new Float32Array(len),sig=F=>Math.sin(2*Math.PI*3*F/sr);
+ for(const v of[.8,1.25]){const r=new LoopCore(sr);r.cmd({type:'load',i:0,data:z,len,t0:0,vol:1,pan:0,fx:0});r.cmd({type:'gate',i:0,on:1,frame:0});
+  const o=new Float32Array(N),inp=new Float32Array(N),marks=[];let F=0;
+  const go=(bl,feed)=>{for(let b=0;b<bl;b++,F+=N){for(let k=0;k<N;k++)inp[k]=feed?sig(F+k):0;r.process([inp,null,null],o,F,N);marks.push(...r.msgs.filter(m=>m.type==='mark'));r.msgs=[]}};
+  r.cmd({type:'rate',i:0,v});go(80); // velocità assestata
+  const A=F+5;r.cmd({type:'mark',i:0,frame:A,id:1});r.cmd({type:'dub',i:0,bus:0});go(30,true);
+  const qa=marks[0].q,b=r.loops[0].buf;let e=0,cnt=0;
+  for(let p=Math.ceil(qa)+5;p<qa+29*N*v;p++){const Fp=A+(p-qa)/v;e=Math.max(e,Math.abs(b[p%len]-sig(Fp)));cnt++}
+  ok(Math.abs(marks[0].r-v)<1e-3&&cnt>2000&&e<2e-3,'nastro a '+v+': ogni campione dove il loop leggeva quando l\'hai suonato (scarto '+e.toExponential(1)+')');
+  const B=F-1000;r.cmd({type:'mark',i:0,frame:B,id:2});go(1);const qb=marks[1].q,want=(qa+(B-A)*v)%len;
+  ok(Math.abs(qb-want)<.05,'mark su un frame già passato: dalla storia ('+(qb-want).toFixed(4)+' campioni)');
+  r.cmd({type:'undo',i:0});go(1);ok(r.loops[0].buf.every(x=>x===0),'nastro a '+v+': annulla toglie tutta la sovraincisione')}
+ // a velocità normale la sovraincisione resta quella di sempre (sulla griglia)
+ const r=new LoopCore(sr);r.cmd({type:'load',i:0,data:z,len,t0:0,vol:1,pan:0,fx:0});const o=new Float32Array(N),inp=new Float32Array(N);inp[7]=1;
+ r.process([null,null,null],o,0,N);r.cmd({type:'dub',i:0,bus:0});r.process([inp,null,null],o,N,N);ok(r.loops[0].buf[N+7]===1&&r.loops[0].dub.wq===null,'a velocità normale: sulla griglia, campione per campione')}

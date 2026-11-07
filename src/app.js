@@ -198,9 +198,18 @@ function setFxScope(m){fxScope=m;
  flashHint(m==="loop"?`Effetti DJ sul <b>loop selezionato</b> (ora il ${G.sel+1}). Cambiando loop, quello di prima tiene i suoi effetti.`:"Effetti DJ su <b>tutto il mix</b>.");render()}
 const toggleFxScope=()=>setFxScope(fxScope==="mix"?"loop":"mix");
 // spegne tutti gli effetti, sul mix e su ogni loop (i volumi restano com'erano)
+// anche il filtro di ogni loop (modo FILTRO LOOP), che prima restava girato
 function stopAllFx(){for(let i=0;i<7;i++)DJV[i]=0;
  if(DJ){for(let i=0;i<7;i++)djApply(DJ,i);for(let i=0;i<LDJ.length;i++)dropLoopDJ(i);pumpAutoOff()}cutOff();
+ G.loops.forEach((L,i)=>{if(!L.fx)return;L.fx=0;send({type:"fx",i,v:0});saveSoon()});
  flashHint("<b>Effetti spenti</b> su tutto il mix e su tutti i loop.");render()}
+// velocità normale per il loop selezionato (tasto centrale tenuto, tasto 9): la sua e quella del mix, che vale anche per lui.
+// Filtro ed effetti restano come sono; tornando a 1 il loop rientra a tempo sull'1 (speedTick)
+function speedReset(){if(!ready)return;const n=G.sel,D=LDJ[n],mix=DJV[3]!==0,own=!!D&&D.v[3]!==0;
+ if(!mix&&!own){flashHint(`Loop ${n+1}: la velocità è già normale.`);return}
+ DJV[3]=0;if(own)D.v[3]=0;
+ const altri=G.loops.map((_,i)=>i).filter(i=>i!==n&&LDJ[i]&&LDJ[i].v[3]!==0);
+ flashHint(`<b>Velocità normale</b> ${mix?"su tutto il mix":"sul loop "+(n+1)}`+(G.running?", a tempo dall'1":"")+(altri.length?` · il loop ${altri.map(i=>i+1).join(", ")} ha ancora la sua`:"")+".");render()}
 // Tempo degli eventi. ctx.currentTime avanza a scatti: un blocco da 128 campioni alla volta, a raffiche lunghe quanto
 // il buffer della scheda (su questo PC 10 ms, scarto misurato 13,8 ms). Leggerlo quando arriva una nota dava fino a
 // ~14 ms di jitter fra il tasto e il suono (e nel loop, senza quantizzazione). Si usa invece l'istante dell'evento
@@ -263,8 +272,24 @@ function renderRec(i){const L=G.loops[i],evs=G.ev.filter(e=>e.i===i&&e.kind==="r
  for(const e of evs){e.done=true;const seg=renderNote(e.sound,e.note,e.vel,Math.max((e.off??now)-e.on,sr*.03),e.lv);if(!seg)continue;
   let p=qIndex(e,L);for(let k=0;k<seg.length;k++){data[p]+=seg[k];if(++p===L.len)p=0}}
  send({type:"fill",i,data},[data.buffer])}
-function commitDubNote(e){e.done=true;G.ev=G.ev.filter(x=>x!==e);const L=G.loops[e.i];if(!L.has||!L.len)return;
+// dove leggeva il loop quando è partita una nota della sovraincisione: lo dice il core (mark), di solito prima del rilascio
+let markId=0;const MARKS=new Map();
+function markNote(e){e.mid=++markId;MARKS.set(e.mid,e);send({type:"mark",i:e.i,frame:e.on-e.comp,id:e.mid})}
+function onMark(m){const e=MARKS.get(m.id);if(!e)return;MARKS.delete(m.id);e.mk={q:m.q,r:m.r};if(e.wait){e.wait=false;commitDubNote(e)}}
+// nota ricampionata come l'ingresso del core a velocità r (tapeW): dura r volte tanto nel buffer
+function tapeSeg(s,r){const n=Math.max(1,Math.round(s.length*r)),o=new Float32Array(n),m=s.length-1;
+ for(let j=0;j<n;j++){const x=j/r,i=Math.floor(x);o[j]=i>=m?s[m]:s[i]+(s[i+1]-s[i])*(x-i)}return o}
+function commitDubNote(e){if(e.mid&&!e.mk&&MARKS.has(e.mid)){e.wait=true;return}
+ e.done=true;G.ev=G.ev.filter(x=>x!==e);const L=G.loops[e.i];if(!L.has||!L.len)return;
  const seg=renderNote(e.sound,e.note,e.vel,Math.max(e.off-e.on,sr*.03),e.lv);if(!seg)return;
+ // loop a velocità diversa da 1 (o non ancora tornato sulla griglia): la nota va a tempo con quello che sentivi, cioè sulla griglia
+ // del buffer vicina a dove il loop leggeva, ricampionata come la sovraincisione dal vivo (core.js, tapeW)
+ const mk=e.mk,off=mk&&mk.q!=null?dmod(mk.q-(e.on-e.comp-L.t0)+L.len/2,L.len)-L.len/2:0;
+ if(mk&&mk.q!=null&&(Math.abs(mk.r-1)>1e-4||Math.abs(off)>1)){const r=mk.r;if(r<.05)return; // nastro fermo: non si scrive niente
+  const g=gridF(e.q),o=dmod(G.origin-L.t0,L.len),idx=dmod(Math.round(Math.round((mk.q-o)/g)*g+o),L.len);
+  // nel buffer quando la testina è a mezzo giro dalla nota: non si sente doppia e non è ancora il suo turno
+  let at=e.on+Math.round(L.len*.5/r);const now=nowF();while(at<now+sr*.02)at+=Math.round(L.len/r);
+  if(e.dbg)e.dbg.at=at;send({type:"pend",i:e.i,start:idx,data:tapeSeg(seg,r),at});return}
  G.dubTake.push(e);checkDouble(G.dubTake);
  const idx=qIndex(e,L);let at=L.t0+idx;const min=e.on+L.len*.5;
  if(at<min)at+=Math.ceil((min-at)/L.len)*L.len;
@@ -297,7 +322,7 @@ function tap(i){
 function beginRec(i){const L=G.loops[i],f=nowF();dbgForget(i);
  if(L.first){G.running=false;G.firstOn=[];send({type:"rec",i,bus:G.cur,start:f,comp:0})}
  else{if(!G.running)playAll(f);send({type:"rec",i,bus:G.cur,start:f,comp:latencyFrames()})}
- L.start=f;L.state="rec";L.sound=SET.sound;L.q=SET.quant;
+ L.start=f;L.state="rec";L.sound=SET.sound;L.sid=null;L.q=SET.quant;
  // loop nuovo: il pan automatico del loop di prima non vale più (quello girato a mano resta finché il mix automatico non ne dà uno)
  if(L.ar&&!L.pm&&L.pan){L.pan=0;send({type:"pan",i,v:0})}L.mx=freshMx();L.ar=null;L.pm=false;render()}
 
@@ -499,7 +524,7 @@ function telCmd(c){if(away)return;
  else if(c.c==="play"){if(!G.running)return;if(c.v==="down")playDown(true);else playUp()} // tocco = drop, tenuto = build-up
  else if(c.c==="knob"&&KNOB_MODES.includes(c.v))setKnobMode(c.v);
  else if(c.c==="quant"&&QNAMES[+c.v])setQuant(+c.v);
- else if(c.c==="sel"){const i=+c.v;if(G.loops[i]?.has){G.sel=i;flashHint(`Loop ${i+1} selezionato: <b>●</b> per sovraincidere.`)}}
+ else if(c.c==="sel"){const i=+c.v;if(G.loops[i]?.has)selectLoop(i)}
  render()}
 function telPush(){if(!tel.on)return;
  const s=JSON.stringify({perf:!!perf,secs:Math.floor(perfSecs()),fx:fxScope,fxOn:djAll().some(fxActive),knob:knobMode,quant:SET.quant,sel:G.sel,running:G.running,
@@ -538,7 +563,7 @@ function onDump(m){
  if(!m.has.some(Boolean)){if(!G.loops.some(L=>L.state==="rec"||L.state==="closing")&&!anyHas())idb("readwrite",s=>{s.clear()}).catch(()=>{});return}
  if(!G.base)return;
  // posizione e lunghezza dallo stato di Giro (si spostano insieme a G.origin), i campioni solo dei loop cambiati
- const loops=[];G.loops.forEach((L,i)=>{if(m.has[i]&&L.has)loops.push({i,len:L.len,rel:L.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound,mx:L.mx,ar:L.ar,pm:L.pm,bat:L.bat||0})});
+ const loops=[];G.loops.forEach((L,i)=>{if(m.has[i]&&L.has)loops.push({i,len:L.len,rel:L.t0-G.origin,vol:L.vol,pan:L.pan,fx:L.fx,sound:L.sound,sid:L.sid??SOUNDS[L.sound]?.id,mx:L.mx,ar:L.ar,pm:L.pm,bat:L.bat||0})});
  const rec={v:2,sr,base:G.base,beats:G.beats,loops};
  idb("readwrite",s=>{s.put(rec,"s");for(const it of items)s.put(it.data,"L"+it.i);m.has.forEach((h,i)=>{if(!h)s.delete("L"+i)})}).catch(()=>{})}
 async function restoreSession(){
@@ -551,7 +576,9 @@ async function restoreSession(){
  G.base=rec.base;G.beats=rec.beats;G.origin=nowF();G.running=false;
  rec.loops.forEach((s,k)=>{const L=G.loops[s.i],data=datas[k];if(!L||!data||data.length!==s.len)return;
   // mix automatico: le sessioni di prima non hanno le note (mx) e restano come erano; il loro pan conta come girato a mano
-  Object.assign(L,{vol:s.vol,pan:s.pan,fx:s.fx,sound:s.sound,mx:s.mx||null,ar:s.ar??null,pm:s.pm??s.pan!==0,bat:s.bat||0,fixed:false,dk:""});
+  // il suono per id: con i suoni aggiunti (+ SUONI) la posizione nell'elenco può cambiare; se non c'è ancora resta sid (soundOf)
+  const si=s.sid!=null?SOUNDS.findIndex(x=>x.id===s.sid):-1;
+  Object.assign(L,{vol:s.vol,pan:s.pan,fx:s.fx,sound:si>=0?si:s.sid!=null?null:s.sound,sid:si>=0?null:s.sid??null,mx:s.mx||null,ar:s.ar??null,pm:s.pm??s.pan!==0,bat:s.bat||0,fixed:false,dk:""});
   send({type:"load",i:s.i,data,len:s.len,t0:G.origin+s.rel,vol:s.vol,pan:s.pan,fx:s.fx},[data.buffer])});
  if(rec.v===1)send({type:"dump",all:true}); // riscrive subito nel formato nuovo
  setTimeout(()=>{restoring=false},500);
@@ -607,6 +634,7 @@ function dbgWrite(items){if(!G.base)return;
 
 function onCoreMsg(m){
  if(m.type==="wrap")return dbgWrap(m);
+ if(m.type==="mark")return onMark(m);
  if(m.type==="dump")return onDump(m);
  const L=G.loops[m.i];if(!L)return;
  if(m.type==="peaks"){L.peaks=m.peaks;L.ver=m.ver;drawWave(m.i);saveSoon();return}
@@ -804,7 +832,7 @@ function fixRender(i,lv,org){const L=G.loops[i],L0=org.length,off=((G.origin-L.t
 function drumAt(){const f=nowF();return Math.round(G.origin+Math.ceil((f+sr*.05-G.origin)/G.base)*G.base-sr*.008)}
 let batWant=null,drumMsg=0;
 function batMake(j,lv){const L=G.loops[j],si=drumKit(),data=batRender(lv,si,drumSpan()),len=data.length;
- Object.assign(L,{state:"play",has:true,muted:false,pend:null,dropped:false,sound:si,len,t0:G.origin,first:false,peaks:null,
+ Object.assign(L,{state:"play",has:true,muted:false,pend:null,dropped:false,sound:si,sid:null,len,t0:G.origin,first:false,peaks:null,
   mx:{w:{[SOUNDS[si].id]:1},lo:null,kick:true,h:[]},ar:null,pm:false,pan:0,shp:0,swid:0,bat:lv,dk:[lv,si,G.base,len,beatKey()].join(),fixed:false});
  send({type:"load",i:j,data,len,t0:G.origin,vol:L.vol,pan:0,fx:L.fx},[data.buffer]);
  send({type:"gate",i:j,on:G.running?1:0,frame:G.running?drumAt()+Math.round(sr*.008):nowF()});
@@ -830,11 +858,11 @@ function drumSync(){if(!ready)return;const lm=G.base?drumLv:0,now=performance.no
   const g=want(i);
   if(L.bat){if(!g||!fresh)return;const si=drumKit(),T=drumSpan(),key=[g,si,G.base,T,beatKey()].join();
    if(key===L.dk||!calm(L,key))return;if(!BUF[SOUNDS[si].id]){loadSound(si);return}
-   L.dk=key;L.bat=g;L.sound=si;L.mx.w={[SOUNDS[si].id]:1};send({type:"swap",i,data:batRender(g,si,T),frame:drumAt()});return}
+   L.dk=key;L.bat=g;L.sound=si;L.sid=null;L.mx.w={[SOUNDS[si].id]:1};send({type:"swap",i,data:batRender(g,si,T),frame:drumAt()});return}
   if(!g){if(L.fixed&&calm(L,"")){L.fixed=false;L.dk="";L.org=null;send({type:"swap",i,data:null,frame:drumAt()})}return}
   if(!L.mx?.h?.length||L.state!=="play"||!fresh)return;
   const key=[g,L.sound,G.base,beatKey(),L.mx.h.length].join();if(key===L.dk||!calm(L,key))return;
-  if(!BUF[SOUNDS[L.sound].id]){loadSound(L.sound);return}
+  if(!SOUNDS[L.sound])return;if(!BUF[SOUNDS[L.sound].id]){loadSound(L.sound);return}
   // la parte suonata: la prima volta si chiede al core (onDump), poi resta qui per i cambi di quantità
   if(!L.org){if(!L.orgReq){L.orgReq=true;send({type:"dump",all:true,exp:true,only:i,tag:"fix"})}return}
   const data=fixRender(i,g,L.org);L.fixed=true;L.dk=key;send({type:"swap",i,data,keep:true,frame:drumAt()})})}
@@ -878,7 +906,8 @@ function noteOn(note,vel){if(!ready)return;
  // il modo (suddivisione, 0 = spenta) lo decide L.q, fissato quando parte la registrazione o la sovraincisione
  let ev=null;
  if(i>=0&&G.loops[i].q&&BUF[SOUNDS[SET.sound].id]){const L=G.loops[i];
-  ev={i,kind:ti>=0?"rec":"dub",note,vel,sound:SET.sound,q:L.q,on:nowF(),off:null,comp:L.first&&ti>=0?0:latencyFrames()};G.ev.push(ev)}
+  ev={i,kind:ti>=0?"rec":"dub",note,vel,sound:SET.sound,q:L.q,on:nowF(),off:null,comp:L.first&&ti>=0?0:latencyFrames()};G.ev.push(ev);
+  if(ev.kind==="dub")markNote(ev)}
  // nota annotata: il suono dal vivo non va al looper, nel loop entra la versione a tempo; altrimenti va sul bus registrato
  if(ev)ev.lv=DJV[7]; // il volume della tastiera vale anche per la nota rimessa a tempo nel loop
  if(i>=0)dbgNote(i,note,ev,ti>=0&&G.loops[ti].first);
@@ -911,7 +940,12 @@ function padUp(i){clearTimeout(holdT[i]);holdT[i]=null}
 // ---------- MIDI (Axiom AIR Mini 32: modo MIDI canale 1, oppure HyperControl canale 16) ----------
 // pad 1–8 = note 36–43 · manopole 1–8 = CC 1–8 · ■ ▶ ● = CC 16 17 18
 // ◀ ▶ ▲ ▼ = CC 19 20 21 22 · tasto centrale = CC 23 · sustain = CC 64
-const BTN={18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepFamily(1),22:()=>stepFamily(-1),23:()=>stepInFamily(1)};
+const BTN={18:dubButton,19:()=>undoSel(false),20:()=>undoSel(true),21:()=>stepFamily(1),22:()=>stepFamily(-1)};
+// tasto centrale (CC 23): tocco = suono successivo nella famiglia, tenuto 0,6 s = velocità normale sul loop selezionato (speedReset).
+// Tenuto solo se il tasto manda anche il rilascio, come ■ e ▶: finché non se ne vede uno ogni pressione è un tocco
+let ctrHold=0,ctrRel=false;
+function centerDown(){clearTimeout(ctrHold);ctrHold=0;if(!ctrRel){stepInFamily(1);return}ctrHold=setTimeout(()=>{ctrHold=0;speedReset()},600)}
+function centerUp(){ctrRel=true;if(ctrHold){clearTimeout(ctrHold);ctrHold=0;stepInFamily(1)}}
 function initMIDI(){
  if(!navigator.requestMIDIAccess){setMidi(false,"MIDI non supportato: usa Chrome");return}
  navigator.requestMIDIAccess().then(acc=>{
@@ -927,12 +961,19 @@ function initMIDI(){
 let away=false;const tabId=Math.random().toString(36).slice(2),tabCh=typeof BroadcastChannel==="function"?new BroadcastChannel("giro"):null;
 function tabTake(){tabCh?.postMessage({take:tabId});if(!away)return;away=false;$("#away").hidden=true;ctx?.resume();render()}
 if(tabCh)tabCh.onmessage=e=>{if(!e.data||e.data.take===tabId||away||!ctx)return;
- away=true;allNotesOff();stopRelease();playUp();for(const i in holdT)padUp(+i);$("#away").hidden=false;ctx.suspend()};
+ away=true;allNotesOff();stopRelease();playUp();clearTimeout(ctrHold);ctrHold=0;for(const i in holdT)padUp(+i);$("#away").hidden=false;ctx.suspend()};
 let diagOn=false;const diagLines=new Map();
 // sceglie il loop su cui sovraincidere senza toccarne il pad (che lo fermerebbe): solo tra i loop pieni
 function selStep(d){const ids=G.loops.map((L,i)=>L.has?i:-1).filter(i=>i>=0);if(!ids.length)return;
  const k=ids.indexOf(G.sel),i=k<0?ids[d>0?0:ids.length-1]:ids[(k+d+ids.length)%ids.length];
- G.sel=i;flash(`[data-loop="${i}"]`);flashHint(`Loop ${i+1} selezionato: <b>●</b> per sovraincidere.`)}
+ flash(`[data-loop="${i}"]`);selectLoop(i)}
+// suono con cui il loop è stato registrato (sid: salvato per id e non ancora fra i suoni, vedi restoreSession)
+function soundOf(L){if(L.sid!=null){const k=SOUNDS.findIndex(x=>x.id===L.sid);if(k>=0){L.sound=k;L.sid=null}}return SOUNDS[L.sound]?L.sound:-1}
+// selezione esplicita (pitch bend, Maiusc+numero, telefono): il loop resta com'è e la tastiera passa al suo strumento.
+// Il tocco del pad no: ferma e fa rientrare, e cambiare il suono che stai suonando lì sarebbe una sorpresa
+function selectLoop(i){const L=G.loops[i];if(!L.has)return;G.sel=i;const si=soundOf(L);
+ if(si>=0&&si!==SET.sound)setSound(si);
+ flashHint(`Loop ${i+1} selezionato`+(si>=0?` · suono: <b>${SOUNDS[si].name}</b>`:"")+`: <b>●</b> per sovraincidere.`)}
 // pitch bend: su = loop successivo, giù = precedente. Scatta una volta per spinta e si riarma al centro,
 // così funziona sia con una rampa di valori sia con un salto secco.
 let pbArmed=true;
@@ -1000,6 +1041,7 @@ function onMIDI(e){let [st,d1,d2=0]=e.data,type=st&0xf0;
   if(d1===120||d1===123)return allNotesOff(); // all sound off / all notes off
   if(d1===16){if(d2>63){flash(`[data-key="16"]`);stopButton();if(stopRel)stopPress()}else{stopRel=true;stopRelease()}return}
   if(d1===17){if(d2>63){flash(`[data-key="17"]`);playDown(playRel)}else{playRel=true;playUp()}return}
+  if(d1===23){if(d2>63){flash(`[data-key="23"]`);centerDown()}else centerUp();return}
   if(BTN[d1]){if(d2>63){flash(`[data-key="${d1}"]`);BTN[d1]()}return}
   if(d1>=1&&d1<=8)return knobIn(d1-1,d2); // CC 1–8: fanno quello che dice il modo scelto nell'app (volume / pan / effetti DJ)
   return}
@@ -1017,7 +1059,7 @@ addEventListener("keydown",e=>atEvent(e,()=>{
  const k=e.key.toLowerCase();
  if(e.code==="Space"){e.preventDefault();if(!e.repeat){(G.running?stopButton:playButton)();stopPress()}return}
  if(e.repeat)return;
- if(e.shiftKey&&/^Digit[1-8]$/.test(e.code)){const i=+e.code[5]-1;if(G.loops[i].has){G.sel=i;flashHint(`Loop ${i+1} selezionato: <b>●</b> per sovraincidere.`)}return}
+ if(e.shiftKey&&/^Digit[1-8]$/.test(e.code)){selectLoop(+e.code[5]-1);return}
  if(/^[1-8]$/.test(k))return padDown(+k-1);
  if(k==="r")return dubButton();
  if(k==="b")return playDown(true); // come ▶: tocco = drop, tenuto = build-up
@@ -1025,6 +1067,7 @@ addEventListener("keydown",e=>atEvent(e,()=>{
  if(k==="m")return cycleKnobMode();
  if(k==="c")return toggleFxScope();
  if(k==="0")return stopAllFx();
+ if(k==="9")return speedReset();
  if(k==="n")return perfToggle();
  if(k==="v")return cutButton();
  if(e.key==="Escape")return allNotesOff();
