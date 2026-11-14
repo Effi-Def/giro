@@ -1,0 +1,28 @@
+# Test di Giro su GitHub a ogni push e pull request su main (e a mano da Actions → Test → Run workflow).
+# Gli stessi di python tests/tutti.py sul PC: core in Node, test nel browser con l'Axiom finto, analisi di Orecchio.
+name: Test
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Librerie
+      run: pip install playwright numpy scipy
+    # il Chromium di Playwright per quasi tutti i test, Chrome per quelli che lo chiedono (sessione, export, suoni aggiunti)
+    - name: Browser
+      run: python -m playwright install --with-deps chromium chrome
+    - name: Tutti i test
+      run: python tests/tutti.py

@@ -28,7 +28,7 @@ async def main():
           setKnobMode("dj");await wait(3200);
           const L=G.loops[0],len=L.len,cyc=Math.round(440*len/sr),f0=cyc*sr/len,d=new Float32Array(len);for(let j=0;j<len;j++)d[j]=.3*Math.sin(2*Math.PI*cyc*j/len);
           send({type:'load',i:0,data:d,len,t0:L.t0,vol:.8,pan:0,fx:0});send({type:'gate',i:0,on:1,frame:0});await wait(200);
-          res.f0exp=f0;res.route=loopTo.every(n=>n===masterIn||n===PG.pump);
+          res.f0exp=f0;
           // l'avviso accanto alla riga dei suggerimenti, che intanto resta
           const note=()=>{const e=document.querySelector('#speedNote');return e.hidden?'':e.textContent},riga=()=>document.querySelector('#hint').textContent;
           res.f0=freq(await grab(masterIn,300));res.text0=djText(3);res.note0=note();
@@ -73,7 +73,6 @@ async def main():
         import sys;sys.stdout.reconfigure(encoding='utf-8')
         print(json.dumps(r,ensure_ascii=False))
         ok=lambda c,m:print(('OK  ' if c else 'FAIL')+' '+m)
-        ok(r['route'],'i loop vanno a masterIn o alla pompa')
         ok(abs(r['f0']-r['f0exp'])<3 and r['text0']=='normale','al centro: frequenza intatta (%.1f Hz)'%r['f0'])
         ok(abs(r['fS']-r['expS'])<3 and r['textS']=='50%','a sinistra rallenta, a metà esatta (%.1f Hz, attesi %.1f, «%s»)'%(r['fS'],r['expS'],r['textS']))
         ok(r['homeLibero']==0 and 'fuori tempo' in r['noteLibero'],'a 141%% niente aggancio, e l\'avviso dice fuori tempo («%s»)'%r['noteLibero'])

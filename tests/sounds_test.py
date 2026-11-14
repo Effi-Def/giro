@@ -1,5 +1,5 @@
 from pathlib import Path
-import asyncio
+import asyncio,json
 from playwright.async_api import async_playwright
 async def main():
     async with async_playwright() as p:
@@ -29,10 +29,12 @@ async def main():
         for k in 'ajdj':
             await pg.keyboard.down(k);await pg.wait_for_timeout(100);await pg.keyboard.up(k);await pg.wait_for_timeout(350)
         await pg.keyboard.down('2');await pg.keyboard.up('2');await pg.wait_for_timeout(2500)
-        print('loop',await pg.evaluate('JSON.stringify(G.loops.slice(0,2).map(l=>[l.state,SOUNDS[l.sound].name,l.peaks&&Math.max(...l.peaks)]))'))
+        lp=json.loads(await pg.evaluate('JSON.stringify(G.loops.slice(0,2).map(l=>[l.state,SOUNDS[l.sound].name,l.peaks&&Math.max(...l.peaks)]))'));print('loop',lp)
+        print('OK  ' if all(l[0]=='play' and (l[2] or 0)>.01 for l in lp) and lp[1][1]=='Batteria' else 'FAIL','pianoforte e batteria registrati nei loop 1 e 2')
         await pg.screenshot(path=str(Path(__file__).resolve().parent/'g6.png'))
         await pg.set_viewport_size({'width':420,'height':900});await pg.wait_for_timeout(300)
         await pg.screenshot(path=str(Path(__file__).resolve().parent/'g6p.png'),full_page=True)
-        print('sw',await pg.evaluate('document.documentElement.scrollWidth'),'errori',errs)
+        sw=await pg.evaluate('document.documentElement.scrollWidth');print('sw',sw,'errori',errs)
+        print('OK  ' if sw<=420 and not errs else 'FAIL','a 420 px niente scorrimento di lato, nessun errore')
         await b.close()
 asyncio.run(main())

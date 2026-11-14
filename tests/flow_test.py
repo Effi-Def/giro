@@ -49,9 +49,12 @@ async def main():
         print('mute',await pg.evaluate('JSON.stringify(G.loops[0])'))
         # tieni premuto 3 per niente (vuoto) e 2 per cancellare
         await pg.keyboard.down('2');await pg.wait_for_timeout(1000);await pg.keyboard.up('2');await pg.wait_for_timeout(300)
-        print('clear2',await st())
+        c2=await st();print('clear2',c2)
         await pg.set_viewport_size({'width':420,'height':900});await pg.wait_for_timeout(300)
         await pg.screenshot(path=str(Path(__file__).resolve().parent/'g_phone.png'),full_page=True)
-        print('sw',await pg.evaluate('document.documentElement.scrollWidth'),'errors',errs)
+        sw=await pg.evaluate('document.documentElement.scrollWidth');print('sw',sw,'errors',errs)
+        L=json.loads(c2)['L']
+        print('OK  ' if L[0][0]=='play' and L[1][0]=='empty' else 'FAIL','loop 1 suona, loop 2 cancellato tenendo premuto')
+        print('OK  ' if sw<=420 and not errs else 'FAIL','a 420 px niente scorrimento di lato, nessun errore')
         await b.close()
 asyncio.run(main())

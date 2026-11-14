@@ -37,8 +37,7 @@ function build(){
  pb.addEventListener("pointerdown",e=>{e.preventDefault();pbAct()});
  ["pointerup","pointerleave","pointercancel"].forEach(ev=>pb.addEventListener(ev,stopRelease));
  pb.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();(G.running?stopButton:playButton)()}});
- const db=$("#dropBtn");db.addEventListener("pointerdown",e=>{e.preventDefault();playDown(true)});
- ["pointerup","pointerleave","pointercancel"].forEach(ev=>db.addEventListener(ev,playUp));
+ $("#dropBtn").addEventListener("pointerdown",e=>{e.preventDefault();atEvent(e,playPress)});
  $("#knobBtn").innerHTML=["vol","pan","dj","fx"].map(m=>`<button data-m="${m}">${{dj:"EFFETTI",fx:"FILTRO"}[m]||KNOB_NAMES[m]}</button>`).join("");
  $$("#knobBtn button").forEach(b=>b.onclick=()=>setKnobMode(b.dataset.m));
  $("#djBar").innerHTML=DJ_NAMES.map(()=>`<div class="dj"><span></span><i><u></u></i><small></small></div>`).join("");
@@ -69,9 +68,7 @@ function hint(){
  const n=s=>G.loops.findIndex(L=>L.state===s);
  let i;
  if(G.stopAt)return["<b>Mi fermo alla fine del giro.</b> ■ di nuovo: subito.","rec"];
- if(building)return["<b>Salita…</b> lascia <b>▶</b>: mezzo battito di silenzio e <b>DROP</b> sull'1.","dub"];
- if(G.dropAt)return["<b>DROP</b> sul prossimo 1…","dub"];
- if(G.drop)return[`<b>BREAK:</b> resta il loop ${G.sel+1}. Tocca <b>▶</b>: tutto rientra sull'1 · tieni premuto <b>▶</b>: salita, lascia: <b>DROP</b>.`,"dub"];
+ if(G.drop)return[`<b>BREAK:</b> resta il loop ${G.sel+1}. <b>▶</b> di nuovo: tutto rientra sull'1.`,"dub"];
  if((i=n("armed"))>=0)return[`<b>Loop ${i+1} pronto.</b> Suona: registra dalla prima nota.`,"arm"];
  if((i=n("rec"))>=0)return G.loops[i].first?[`<b>Registro il primo loop.</b> Ripremi il pad ${i+1} nel punto esatto in cui deve ricominciare.`,"rec"]:[`<b>Registro il loop ${i+1}.</b> Ripremi il pad ${i+1} quando hai finito: la lunghezza si aggancia da sola.`,"rec"];
  if((i=n("closing"))>=0)return[`<b>Loop ${i+1}:</b> chiudo alla fine del giro, continua a suonare.`,"rec"];
@@ -81,7 +78,7 @@ function hint(){
   [`<b>IN</b> sul loop ${CUT.i+1}. Premi <b>V</b> di nuovo dove finisce il pezzo: da lì si ripete.`,"arm"];
  if(!anyHas())return[START_HINT,"off"];
  if(!G.running)return["Fermo. <b>▶</b> per ripartire · tieni premuto <b>■</b> per cancellare tutto.","off"];
- return["Pad: nuovo loop · ferma / riparti sull'1 · <b>●</b> sovraincidi (pitch bend sceglie il loop) · <b>▶</b> break, tenuto salita e DROP · <b>■</b> fine a tempo.","play"]}
+ return["Pad: nuovo loop · ferma / riparti sull'1 · <b>●</b> sovraincidi (pitch bend sceglie il loop) · <b>▶</b> break · <b>■</b> fine a tempo.","play"]}
 // velocità non normale: la manopola resta girata senza accorgersene, e i loop sono fuori tempo e stonati rispetto alle note.
 // Sta accanto alla riga dei suggerimenti, così non ne toglie mai uno.
 function speedNote(){const m=DJV[3],ls=G.loops.map((_,i)=>i).filter(i=>LDJ[i]&&LDJ[i].v[3]!==0),al=a=>"AL "+Math.round((1+a)*100)+"%";
@@ -142,7 +139,7 @@ function render(){
  $$(".loop").forEach(b=>{const L=G.loops[+b.dataset.loop];b.querySelector(".snm").textContent=L.has||L.state==="rec"?(SOUNDS[L.sound]?.name||"")+padFx(+b.dataset.loop):""});
  $("#amixBtn").textContent=SET.amix?"SÌ":"NO";$("#amixBtn").classList.toggle("on",!!SET.amix);
  $("#playBtn").textContent=G.stopAt?"■ SUBITO":G.running?"■ STOP":"▶ PLAY";$("#playBtn").classList.toggle("on",G.running);
- $("#dropBtn").disabled=!G.running;$("#dropBtn").textContent=building?"▶ LASCIA: DROP":G.drop?"▶ RIENTRA":"▶ BREAK";$("#dropBtn").classList.toggle("on",G.drop||building||!!G.dropAt);
+ $("#dropBtn").disabled=!G.running;$("#dropBtn").textContent=G.drop?"▶ RIENTRA":"▶ BREAK";$("#dropBtn").classList.toggle("on",G.drop);
  $("#dubBtn").textContent=G.loops[G.sel].state==="dub"?`● FINE (loop ${G.sel+1})`:`● SOVRAINCIDI ${G.sel+1}`;
  $("#dubBtn").classList.toggle("on",G.loops[G.sel].state==="dub");
  $("#bpmDn").disabled=$("#bpmUp").disabled=!G.base;$("#info").classList.toggle("on",!!TEMPO.want);

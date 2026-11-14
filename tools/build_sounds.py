@@ -57,8 +57,6 @@ for id,name,cat,folder,ex in S:
 for id,name,cat,folder,mp,gain in [('batteria','Batteria','Batterie','lm2',LM,.55),('808','Drum machine 808','Batterie','tr808',TR,1.1),('house909','House 909','Techno','house909',H909,.5),('cr8000','CR-8000','Batterie','cr8000',CR,.5)]:
   meta.append(dict(id=id,name=name,cat=cat,gain=gain,off=0,drum=1))
   data[id]={k:base64.b64encode(open(f'{folder}/{v}.ogg','rb').read()).decode() for k,v in mp.items()}
-# campioni del drop (boom e piatto, tools/fetch_edm.py): non sono suoni da suonare, li usa il drop su ▶
-data['drop_fx']={k:base64.b64encode(open(f'drop_fx/{k}.ogg','rb').read()).decode() for k in('boom','crash')}
 mul={'organo':.5,'coro':.65,'archi':1.5,'pad':1.4,'808':.6,'batteria':.75,'synthbass':1.2,'piano':1.15,'rhodes':1.15,'vibra':1.1,
  'synthbass2':.9,'synthbrass':.85,'polysynth':1.1,'sweep':1.3,'supersaw':.85,'house909':.85,
  'glock':.45,'steeldrum':.6,'stab':.6,'acid':.75,'mtflauto':1.5,'celesta':1.25,'cristallo':.8,'mtarchi':.8,'atmosfera':.8}

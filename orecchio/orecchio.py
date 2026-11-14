@@ -116,7 +116,7 @@ class Inviluppo:
 
 
 def attacchi_audio(d, sr):
-    """Istanti (s) degli attacchi in un loop circolare, con la regola di beatOnsets in app.js:
+    """Istanti (s) degli attacchi in un loop circolare, con la regola che usava beatOnsets (la batteria automatica di Giro, ora tolta):
     energia a blocchi di 256 campioni, salita di almeno 6 dB sui 3 blocchi prima, non oltre 30 dB sotto il massimo."""
     B = 256
     n = len(d) // B
@@ -144,7 +144,7 @@ def misura_attacchi(d, sr, griglia):
     battito = griglia["loopLength"] / battiti if battiti else None
     candidati = [battito / 4, battito / 2, battito] if battiti else [griglia["step"]]
     z = [(p, np.exp(2j * np.pi * t / p).mean()) for p in candidati]
-    # La più larga che spiega quasi quanto la migliore, come beatGrid in app.js: un anticipo costante su una parte
+    # La più larga che spiega quasi quanto la migliore, come faceva beatGrid in Giro: un anticipo costante su una parte
     # a ottavi si raccoglie anche sui sedicesimi, ma lì sembrerebbe un ritardo.
     migliore = max(abs(v) for _, v in z)
     p, v = [x for x in z if abs(x[1]) >= 0.9 * migliore][-1]
@@ -187,7 +187,7 @@ def analizza(log, cartella="."):
             "griglia_non_intera", "grave",
             "Il giro non contiene un numero intero di caselle",
             f"Giro di {base_len:.4f} s diviso in caselle da {passo*1000:.2f} ms = {caselle:.3f} caselle.",
-            "app.js — dove si ricava bpm e passo dal primo giro.",
+            "app/looper.js (close) e app/quantizza.js (beatsFor, checkDouble) — dove si ricava bpm e passo dal primo giro.",
             "Il passo va calcolato come lunghezza del giro / numero intero di caselle, non dai bpm arrotondati."))
     for lid, l in loops.items():
         ls = l.get("lengthSamples")
@@ -206,7 +206,7 @@ def analizza(log, cartella="."):
                 "loop_non_multiplo", "grave",
                 f"Il loop {lid} non è un multiplo esatto del primo giro",
                 f"Dura {ls/sr:.5f} s = {multiplo:.4f} volte il primo giro: i due loop si sfasano a ogni passaggio.",
-                "app.js / core.js — dove si fissa la lunghezza dei loop successivi.",
+                "app/looper.js (close) / core.js — dove si fissa la lunghezza dei loop successivi.",
                 "Ricava la lunghezza come multiplo intero di lengthSamples del primo giro."))
 
     # --- 2. ingresso MIDI: tempo usato vs pressione reale
@@ -237,7 +237,7 @@ def analizza(log, cartella="."):
                 "ingresso_in_ritardo", "grave" if grave else "attenzione",
                 "Le note vengono datate in ritardo e in modo irregolare",
                 f"Ritardo medio {ms_abs(r.mean())}, dispersione {ms_abs(r.std())}, massimo {ms_abs(r.max())}. {causa}",
-                "app.js — gestore onmidimessage, dove si calcola la posizione della nota nel giro.",
+                "app/midi.js (onMIDI) e app/quantizza.js (qIndex) — dove arriva la nota e si calcola la sua posizione nel giro.",
                 "Converti event.timeStamp (scala performance.now) in tempo audio con audioCtx.getOutputTimestamp(), "
                 "invece di leggere audioCtx.currentTime all'arrivo: currentTime avanza a blocchi e il thread principale può essere in ritardo."))
 
@@ -266,7 +266,7 @@ def analizza(log, cartella="."):
             f"Esempio: nota a {ese['pos']:.4f} s portata a {ese['qpos']:.4f} s in un giro lungo {lunghezza(ese.get('loop')):.4f} s. "
             "Le note suonate poco prima della fine vengono spinte oltre il giro invece che all'inizio del successivo: "
             "si perdono o finiscono nel posto sbagliato.",
-            "app.js — funzione di quantizzazione.",
+            "app/quantizza.js — qIndex.",
             "Dopo l'arrotondamento applica il modulo: qpos = (round(pos/passo)*passo) % lunghezza."))
     if errori_q:
         ese = errori_q[0]
@@ -276,7 +276,7 @@ def analizza(log, cartella="."):
             "calcolo_quantizzazione", "grave",
             f"{len(errori_q)} note quantizzate su una casella diversa da quella più vicina",
             f"Esempio: posizione {ese['pos']:.4f} s → {ese['qpos']:.4f} s, la casella più vicina era {atteso:.4f} s.",
-            "app.js — funzione di quantizzazione (arrotondamento per difetto? origine della griglia diversa da 0?).",
+            "app/quantizza.js — qIndex (arrotondamento per difetto? origine della griglia diversa da 0?).",
             "Usa Math.round, non Math.floor, e misura la posizione dall'inizio del giro."))
 
     # --- 4. dove cadono le note rispetto alla griglia
@@ -316,7 +316,7 @@ def analizza(log, cartella="."):
                 f"Concentrazione {R:.2f} (1 = tutte vicine alla griglia, 0 = sparse a caso), bassa anche su ottavi e battiti. "
                 f"Griglia dedotta: {griglia.get('bpm')} bpm, caselle da {passo*1000:.1f} ms."
                 + ("" if q_misurate else " La quantizzazione è spenta: la griglia conta solo per il battito e gli effetti a tempo."),
-                "app.js — deduzione di bpm e numero di battiti dal primo giro.",
+                "app/quantizza.js — beatsFor e checkDouble: bpm e numero di battiti dal primo giro.",
                 "Controlla in quanti battiti è stato diviso il primo giro: con un giro di 2 s, 4 o 8 battiti danno una griglia, 5 o 6 un'altra. "
                 "Valuta di scegliere il numero di battiti che mette più note del primo giro vicino alla griglia."))
         elif abs(medio) > 0.010:
@@ -332,7 +332,7 @@ def analizza(log, cartella="."):
                     dettaglio + f" Il browser dichiara {ms_abs(lat)} di latenza e la compensazione applicata è {ms_abs(comp)}. "
                     "Tu suoni a tempo con quello che SENTI, che esce dalle casse con quel ritardo: senza compensazione ogni nota "
                     "sembra in ritardo e quelle vicine al limite scivolano sulla casella dopo.",
-                    "app.js — calcolo di pos per le sovraincisioni.",
+                    "app/quantizza.js — commitDubNote: posizione delle note nelle sovraincisioni.",
                     "Sottrai audioCtx.outputLatency + audioCtx.baseLatency dalla posizione delle note suonate sopra un loop che sta già girando "
                     "(non sul primo giro). Su Windows il valore dichiarato può essere impreciso: lasciane una correzione manuale fine."))
             elif spiega_in:
@@ -340,7 +340,7 @@ def analizza(log, cartella="."):
                     "scarto_da_ingresso", "attenzione",
                     "Lo scarto dalla griglia coincide con il ritardo di ingresso",
                     dettaglio + " Risolvendo il ritardo di ingresso dovrebbe sparire anche questo.",
-                    "app.js — gestore MIDI.", "Vedi il reperto sul ritardo di ingresso."))
+                    "app/midi.js — onMIDI.", "Vedi il reperto sul ritardo di ingresso."))
             else:
                 reperti.append(Reperto(
                     "scarto_sistematico", "grave" if cambia else "attenzione",
@@ -350,7 +350,7 @@ def analizza(log, cartella="."):
                                  " Non è spiegato né dalla latenza dichiarata né dal ritardo di ingresso: "
                                  "può essere il tuo modo di suonare, oppure una latenza che il browser non dichiara (interfaccia audio, driver)."),
                     "È dove hai premuto il tasto: prima di cercare in Giro, guarda se ingresso e giri sono a posto." if medio < 0 else
-                    "app.js — compensazione della latenza.",
+                    "app/orologio.js — latencyFrames.",
                     "Se si sente fuori tempo, accendi la quantizzazione: l'anticipo deve stare sotto mezza casella, "
                     "altrimenti la nota finisce sulla casella prima." if medio < 0 else
                     "Fai una prova a metronomo: se lo scarto resta uguale, aggiungi una regolazione di latenza manuale."))
@@ -388,7 +388,7 @@ def analizza(log, cartella="."):
             "doppio_trigger", "attenzione",
             f"{len(doppie)} note arrivate due volte a pochi millisecondi",
             f"Esempio: {nome_nota(a.get('pitch'))} a {a['pos']:.4f} e {b['pos']:.4f} s. Finiscono sulla stessa casella e suonano più forti o 'flangiate'.",
-            "app.js — gestore MIDI (note-on duplicati, o note-on con velocity 0 trattati come nuove note).",
+            "app/midi.js e app/note.js — onMIDI e noteOn (note-on duplicati, o note-on con velocity 0 trattati come nuove note).",
             "Ignora un note-on della stessa nota entro ~30 ms dal precedente, e tratta velocity 0 come note-off."))
     if accorpate:
         reperti.append(Reperto(
@@ -457,7 +457,7 @@ def analizza(log, cartella="."):
                 "note_mancanti", "grave" if mancanti > 2 else "attenzione",
                 f"{mancanti} note quantizzate non si sentono nel loop",
                 "Nel log ci sono, nell'audio del loop no (nessun attacco vicino alla loro casella).",
-                "sampler.js / app.js — scrittura delle note nel buffer del loop.",
+                "sampler.js / app/quantizza.js — scrittura delle note nel buffer del loop.",
                 "Controlla le note vicino alla fine del giro e quelle in sovraincisione che entrano 'dal giro successivo'."))
 
     # --- 7. loop con l'audio ma senza note nel log (annullato, ripetuto, sessione ripresa): si misura dagli attacchi

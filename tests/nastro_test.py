@@ -7,10 +7,11 @@
 from pathlib import Path
 import asyncio,json,sys
 from playwright.async_api import async_playwright
+from giro import AXIOM
 GIRO=(Path(__file__).resolve().parent.parent/'dist'/'giro.html').as_uri()
 async def page(c):
     pg=await c.new_page();errs=[];pg.on('pageerror',lambda e:errs.append(str(e)))
-    await pg.goto(GIRO);await pg.keyboard.press('Enter');await pg.wait_for_timeout(3500);return pg,errs
+    await pg.add_init_script(AXIOM);await pg.goto(GIRO);await pg.keyboard.press('Enter');await pg.wait_for_timeout(3500);return pg,errs
 async def main():
     async with async_playwright() as p:
         a=['--autoplay-policy=no-user-gesture-required']
@@ -79,7 +80,7 @@ async def main():
           const wait=ms=>new Promise(r=>setTimeout(r,ms));const res={};
           const kb=(t,k,o)=>document.body.dispatchEvent(new KeyboardEvent(t,{key:k,code:o.code,shiftKey:!!o.shift,bubbles:true}));
           const key=async(k,o={})=>{kb('keydown',k,o);await wait(30);kb('keyup',k,o)};
-          const midi=(cc,v)=>onMIDI({data:[0xB0,cc,v]});
+          const midi=(cc,v)=>axiom.cc(cc,v);
           if(!G.running)playAll();await wait(200);
           setKnobMode("dj");setFxScope("mix");djKnob(0,30);djKnob(3,51.4);G.sel=0;setFxScope("loop");djKnob(0,100);djKnob(3,32.5); // loop a ½ sul mix a 0,8
           G.loops[0].fx=-.6;send({type:'fx',i:0,v:-.6});await wait(200);
@@ -95,7 +96,7 @@ async def main():
           setSound(pf);tap(0);await wait(30);noteOn(60,.8);await wait(100);noteOff(60);await wait(1900);tap(0);await wait(300);
           setSound(rh);tap(1);await wait(30);noteOn(64,.8);await wait(100);noteOff(64);await wait(1900);tap(1);await wait(300);
           setSound(5);await key('!',{code:'Digit1',shift:true});res.shift1=SET.sound===pf&&G.sel===0;res.hint1=document.querySelector('#hint').textContent;
-          onMIDI({data:[0xE0,127,127]});onMIDI({data:[0xE0,0,64]});res.bend=SET.sound===rh&&G.sel===1;
+          axiom.bend(16383);axiom.bend(8192);res.bend=SET.sound===rh&&G.sel===1;
           setSound(5);padDown(0);padUp(0);await wait(50);res.padKeeps=SET.sound===5;padDown(0);padUp(0);
           await wait(6000);
           const rec=await idb("readonly",s=>s.get("s"));res.saved=rec.loops.map(l=>l.sid);

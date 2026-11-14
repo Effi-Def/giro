@@ -1,51 +1,43 @@
 # Comandi pensati per suonare dal vivo: ■ a fine giro, ■■ subito, ▶ solo da fermo, ■ tenuto = cancella tutto,
 # ▲▼ per famiglia e tasto centrale dentro la famiglia, pitch bend che seleziona il loop, battito visivo,
-# break, salita e drop con ▶, rientro dei pad sull'1, modi delle manopole e messaggi HyperControl.
-from pathlib import Path
+# break con ▶, rientro dei pad sull'1, modi delle manopole e messaggi HyperControl.
+# I comandi dell'Axiom arrivano dall'Axiom finto (axiom_finto.js), dalle sue due porte come quelli veri.
 import asyncio,json
 from playwright.async_api import async_playwright
+from giro import browser,apri
 async def main():
     async with async_playwright() as p:
-        b=await p.chromium.launch(args=['--autoplay-policy=no-user-gesture-required'])
-        pg=await b.new_page(viewport={'width':1366,'height':768})
-        errs=[];pg.on('pageerror',lambda e:errs.append(str(e)))
-        await pg.goto((Path(__file__).resolve().parent.parent/'dist'/'giro.html').as_uri())
-        await pg.keyboard.press('Enter');await pg.wait_for_timeout(3500)
+        b=await browser(p);pg,errs=await apri(b)
         r=await pg.evaluate('''async()=>{
           const wait=ms=>new Promise(r=>setTimeout(r,ms));const res={};
-          const cc=(n,v)=>onMIDI({data:[0xB0,n,v]});
+          const cc=(n,v)=>axiom.cc(n,v);
           // famiglie: dal Pianoforte ▲ va alle Chitarre, centrale scorre dentro, ▼▲ ricorda l'ultimo
           setSound(0);cc(21,127);res.fam1=SOUNDS[SET.sound].name;cc(23,127);res.inFam=SOUNDS[SET.sound].name;
-          cc(22,127);cc(21,127);res.back=SOUNDS[SET.sound].name;cc(22,127);
+          cc(22,127);cc(21,127);res.backFam=SOUNDS[SET.sound].name;cc(22,127);
           // primo loop di 2 s
           SET.quant=0;tap(0);await wait(30);const T=ctx.currentTime;noteOn(60,.8);await wait(150);noteOff(60);
           while(ctx.currentTime-T<2)await wait(1);tap(0);await wait(300);
           res.beatShown=!document.querySelector('#beat').hidden&&document.querySelectorAll('#beat i.on').length===1;
           // pitch bend: seleziona i loop pieni senza fermarli (una volta per spinta, si riarma al centro)
           tap(1);await wait(30);noteOn(64,.8);await wait(150);noteOff(64);await wait(600);tap(1);await wait(2200);
-          const pb=v=>onMIDI({data:[0xE0,v&127,v>>7]});
+          const pb=v=>axiom.bend(v);
           G.sel=1;pb(10000);pb(14000);pb(16383);pb(14000);res.pbOnce=G.sel;pb(8192);pb(16383);pb(8192);res.pbAgain=G.sel;
           pb(0);pb(8192);res.pbDown=G.sel;res.pbPlaying=G.loops[0].state==="play"&&!G.loops[0].muted&&G.loops[1].state==="play"&&!G.loops[1].muted;
-          // break: tocco breve di ▶ (rilascio già visto) -> al prossimo 1 resta solo il loop selezionato
+          // break: ▶ -> al prossimo 1 resta solo il loop selezionato
           const onBar=at=>Math.abs((at-G.origin)%barF())<1;
-          G.sel=1;cc(17,0);cc(17,127);await wait(100);cc(17,0);
+          G.sel=1;cc(17,127);cc(17,0);
           const L0=G.loops[0];res.dropPend=G.drop&&!!L0.pend&&L0.pend.muted&&onBar(L0.pend.at);
           const atD=L0.pend?L0.pend.at:0;while(nowF()<atD+sr*.08)await wait(5);
           res.dropped=L0.muted&&L0.dropped&&!G.loops[1].muted;
-          // salita: ▶ tenuto apre il passa-alto, parte il riser e la rullata a tempo
-          const f0=bHP.frequency.value;cc(17,127);await wait(1200);
-          res.buildClosing=building&&bHP.frequency.value>f0*3&&!!bld&&bld.next>bld.start&&(bld.start-G.origin)%(G.base/G.beats)===0;
-          // drop: al rilascio mezzo battito di silenzio, poi sull'1 rientra tutto, il passa-alto si richiude e parte la pompa
-          cc(17,0);res.returnPend=!G.drop&&!!L0.pend&&!L0.pend.muted&&onBar(L0.pend.at)&&G.dropAt===L0.pend.at;
-          const atR=L0.pend?L0.pend.at:0,half=G.base/G.beats/2;while(nowF()<atR-half+sr*.04)await wait(2);res.gap=dropG.gain.value<.05;
-          while(nowF()<atR+sr*.08)await wait(5);
-          res.back=!L0.muted&&!L0.dropped&&bHP.frequency.value<20&&dropG.gain.value>.99&&!G.dropAt&&!bld;
-          res.autoPump=pumpAuto&&DJ.pv>.5&&!!PG.pumpOsc;
+          // ▶ di nuovo, anche tenuto a lungo: tutto rientra sul prossimo 1 (niente salita né drop)
+          cc(17,127);await wait(1200);cc(17,0);res.returnPend=!G.drop&&!!L0.pend&&!L0.pend.muted&&onBar(L0.pend.at);
+          const atR=L0.pend?L0.pend.at:0;while(nowF()<atR+sr*.08)await wait(5);
+          res.back=!L0.muted&&!L0.dropped&&!G.drop;
           // pad pieno: si ferma alla suddivisione, rientra sull'1 della battuta
           tap(0);const atS=L0.pend.at;while(nowF()<atS+sr*.05)await wait(5);tap(0);res.padOnOne=onBar(L0.pend.at);
           while(L0.pend)await wait(10);
           // HyperControl (canale 16): pulsante dei modi, manopole CC 33–40, tasto centrale CC 98, pad note 81–88
-          const hc=(n,v)=>onMIDI({data:[0xBF,n,v]});
+          const hc=(n,v)=>axiom.hcCC(n,v);
           // le manopole si agganciano passando dal valore attuale: kc/kh prima la portano lì, poi al valore voluto
           const kc=(n,v)=>{cc(n,Math.round(knobTarget(n-1)));cc(n,v)},kh=(n,v)=>{hc(n,Math.round(knobTarget(n-33)));hc(n,v)};
           hc(58,127);hc(58,0);res.hcVol=knobMode;hc(58,127);hc(58,0);res.hcPan=knobMode;kh(33,0);res.pan0=G.loops[0].pan;
@@ -57,7 +49,7 @@ async def main():
           const v0=G.loops[0].vol;kc(1,0);kc(2,127);kc(4,64);kc(4,0);kc(5,127);kc(6,127);kc(7,60);kc(8,64);await wait(400);
           res.djBar=document.querySelector('#djBar').dataset.m==='dj'&&document.querySelector('#djBar').textContent.includes('RIVERBERO');res.djVolUntouched=G.loops[0].vol===v0;
           res.djFilter=DJ.lp.frequency.value<1000;res.djEcho=DJ.eSend.gain.value>.9&&DJ.eFb.gain.value>.7;
-          res.djGen=djText(3)==='fermo'&&!G.loops[2].has&&pumpAuto&&!!PG.pumpOsc; // la manopola 4 è la velocità: la pompa del drop resta
+          res.djGen=djText(3)==='fermo'&&!G.loops[2].has; // la manopola 4 è la velocità
           res.djCrush=!!DJ.crush.curve;res.djWobble=DJ.wbK===4&&!!DJ.wbOsc;
           res.djRoll=DJ.rollK===2;res.djLive=Math.abs(DJV[7]-64/127)<1e-6;
           await wait(Math.round(G.base/G.beats/2/sr*1000)*2+150);res.djRollOn=DJ.rWet.gain.value===1&&DJ.rDry.gain.value===0;
@@ -73,7 +65,7 @@ async def main():
           res.fxLoopVol=Math.abs(G.loops[1].vol-64/127)<1e-6&&DJV[7]===1;
           res.fxBadge=document.querySelector('.loop[data-loop="0"] .snm').textContent.endsWith('FX');
           setFxScope('mix');kc(2,127);await wait(100);stopAllFx();await wait(300);
-          res.fxStop=LDJ.every(d=>!d)&&DJ.eSend.gain.value<.01&&!djAll().some(fxActive)&&!pumpAuto&&!PG.pumpOsc;
+          res.fxStop=LDJ.every(d=>!d)&&DJ.eSend.gain.value<.01&&!djAll().some(fxActive);
           G.loops[1].vol=.8;send({type:'vol',i:1,v:.8});
           // aggancio: lontana dal valore la manopola non fa niente, passandoci sopra lo prende
           setKnobMode("vol");const lv=G.loops[0].vol;cc(1,5);res.pickWait=G.loops[0].vol===lv&&document.querySelector('#hint').textContent.includes('agganciarla');
@@ -83,12 +75,13 @@ async def main():
           // dopo STOP EFFETTI la manopola rimasta girata non riaccende l'effetto
           kc(2,120);stopAllFx();cc(2,121);await wait(200);res.pickAfterStop=DJ.eSend.gain.value<.01&&DJV[1]===0;
           // note bloccate: «all notes off» dall'Axiom le spegne, anche col pedale
-          setSustain(true);noteOn(67,.8);noteOff(67);onMIDI({data:[0xB0,123,0]});res.allOff=held.size===0&&!sustain;
-          // dal telefono: tenuto = build-up, rilascio = si riapre
-          telCmd({c:'play',v:'down'});await wait(600);res.telBuild=building;telCmd({c:'play',v:'up'});res.telBuildEnd=!building&&G.dropAt>0;
+          setSustain(true);noteOn(67,.8);noteOff(67);axiom.cc(123,0);res.allOff=held.size===0&&!sustain;
+          // dal telefono: break e rientro (il rilascio non fa niente)
+          telCmd({c:'play',v:'down'});res.telBreak=G.drop;telCmd({c:'play',v:'up'});res.telUp=G.drop;telCmd({c:'play',v:'down'});res.telBack=!G.drop;
+          while(G.loops.some(L=>L.pend))await wait(10);
           const s0=SET.sound;hc(98,127);hc(98,0);res.hcCenter=SET.sound!==s0;
-          onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad=!!G.loops[0].pend;
-          onMIDI({data:[0x9E,81,100]});onMIDI({data:[0x8E,81,0]});res.hcPad2=!G.loops[0].pend;
+          axiom.hcPad(1);axiom.hcPad(1,false);res.hcPad=!!G.loops[0].pend;
+          axiom.hcPad(1);axiom.hcPad(1,false);res.hcPad2=!G.loops[0].pend;
           setKnobMode("pan");knob(0,64);setKnobMode("fx");knob(1,64);setKnobMode("vol");knob(0,102);
           res.reset=G.loops[0].pan===0&&G.loops[1].fx===0;
           // ▶ mentre suona: niente
@@ -118,7 +111,7 @@ async def main():
         await pg.keyboard.press('c');r['keyC']=await pg.evaluate('fxScope==="loop"');await pg.keyboard.press('c')
         await pg.keyboard.down('a');await pg.evaluate('dispatchEvent(new Event("blur"))');r['blurOff']=await pg.evaluate('held.size===0&&pcHeld.size===0');await pg.keyboard.up('a')
         print(json.dumps(r,indent=1));print('errori',errs)
-        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','back':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'buildClosing':True,'returnPend':True,'gap':True,'autoPump':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'EFFETTI','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djGen':True,'djCrush':True,'djWobble':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'fxLoopSound':True,'fxLoopKeep':True,'fxLoopVol':True,'fxBadge':True,'fxStop':True,'pickWait':True,'pickCross':True,'pickDj':True,'pickAfterStop':True,'allOff':True,'panic':True,'keyE':True,'keyL':True,'keyN':True,'keyC':True,'blurOff':True,'telBuild':True,'telBuildEnd':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
+        exp={'fam1':'Chitarra acustica','inFam':'Chitarra elettrica','backFam':'Chitarra elettrica','beatShown':True,'pbOnce':0,'pbAgain':1,'pbDown':0,'pbPlaying':True,'dropPend':True,'dropped':True,'returnPend':True,'back':True,'padOnOne':True,'hcVol':'vol','hcPan':'pan','pan0':-1,'hcFx':'fx','fx1':1,'fxBar':True,'hcMidi':'dj','knobLabel':'EFFETTI','djBar':True,'djVolUntouched':True,'djFilter':True,'djEcho':True,'djGen':True,'djCrush':True,'djWobble':True,'djRoll':True,'djLive':True,'djRollOn':True,'djOff':True,'fxLoopSound':True,'fxLoopKeep':True,'fxLoopVol':True,'fxBadge':True,'fxStop':True,'pickWait':True,'pickCross':True,'pickDj':True,'pickAfterStop':True,'allOff':True,'panic':True,'keyE':True,'keyL':True,'keyN':True,'keyC':True,'blurOff':True,'telBreak':True,'telUp':True,'telBack':True,'hcCenter':True,'hcPad':True,'hcPad2':True,'reset':True,'playIgnored':True,
              'stopAtBoundary':True,'stillRunning':True,'label':'■ SUBITO','stoppedAfter':True,'immediate':True,'notYet':True,'cleared':True,'shortKeeps':True}
         bad={k:(r.get(k),v) for k,v in exp.items() if r.get(k)!=v}
         assert not bad and not errs,bad

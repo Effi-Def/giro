@@ -25,9 +25,11 @@ Senza tastiera MIDI: `A…K` note, `Z/X` ottava, `1–8` loop, `R` sovraincidi, 
 
 ```
 python tools/build.py      # assembla dist/giro.html da src/
-node tests/core_test.js    # test del motore del looper
-python tests/flow_test.py  # test nel browser (Playwright + Chromium)
+python tests/tutti.py      # build e tutti i test (motore, browser con un Axiom simulato, Orecchio)
+python tests/tutti.py live # solo alcuni
 ```
+
+Gli stessi test girano su GitHub a ogni push su `main` (`.github/workflows/playwright.yml`).
 
 I dettagli su architettura, quantizzazione e mappa MIDI sono in [CLAUDE.md](CLAUDE.md).
 

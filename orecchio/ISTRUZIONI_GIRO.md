@@ -10,7 +10,7 @@ Giro deve poter esportare un file JSON con tutto quello che serve a capire **dov
 
 ## Cosa fare
 
-1. **Raccolta sempre attiva e leggera** (`app.js`): un oggetto `DBG` con un buffer circolare di massimo 2000 note e 500 ripartenze. Nessun costo percepibile mentre si suona.
+1. **Raccolta sempre attiva e leggera** (`src/app/debug.js`): un oggetto `DBG` con un buffer circolare di massimo 2000 note e 500 ripartenze. Nessun costo percepibile mentre si suona.
 
 2. **Per ogni note-on che finisce in un loop** registra i campi di `notes` del formato. In particolare:
    - `midiTs` = `event.timeStamp`, `perfArrival` = `performance.now()` e `ctxArrival` = `audioCtx.currentTime`, letti **all'inizio** di `onmidimessage`;
@@ -20,7 +20,7 @@ Giro deve poter esportare un file JSON con tutto quello che serve a capire **dov
 
 3. **Griglia**: quando il primo giro si chiude, salva in `DBG.grid` i valori esatti usati per la quantizzazione (lunghezza, bpm, battiti, divisione, passo).
 
-4. **Ripartenze** (`core.js`, nel worklet): quando l'indice di lettura di un loop torna a 0, invia con `port.postMessage` `{type: 'wrap', loop, ctx: currentTime + i / sampleRate}`, dove `i` è l'indice del frame dentro il blocco da 128. In `app.js` aggiungile a `DBG.wraps`.
+4. **Ripartenze** (`core.js`, nel worklet): quando l'indice di lettura di un loop torna a 0, invia con `port.postMessage` `{type: 'wrap', loop, ctx: currentTime + i / sampleRate}`, dove `i` è l'indice del frame dentro il blocco da 128. In `src/app/debug.js` aggiungile a `DBG.wraps`.
 
 5. **Audio dei loop**: al momento dell'esportazione chiedi al worklet una copia di ogni buffer (messaggio `dump`), convertila in WAV PCM 16 bit mono e mettila in `wavBase64`. Scrivi una piccola funzione `encodeWav(float32, sampleRate)`, nessuna libreria.
 

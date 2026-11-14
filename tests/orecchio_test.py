@@ -9,10 +9,11 @@ from scipy.io import wavfile
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT/'orecchio'))
 from orecchio import analizza,scrivi_report
+from giro import AXIOM
 SUONA='''async()=>{
  const wait=ms=>new Promise(r=>setTimeout(r,ms));
- // come onmidimessage: l'evento passa da atEvent col suo timeStamp
- const midi=(st,a,b)=>atEvent({timeStamp:performance.now(),data:[st,a,b]},()=>onMIDI({data:[st,a,b]}));
+ // dall'Axiom finto: l'evento passa da onmidimessage e atEvent col suo timeStamp
+ const midi=(st,a,b)=>axiom.midi(st,a,b);
  const on=async(n,ms=90)=>{midi(0x90,n,100);await wait(ms);midi(0x80,n,0)};
  const until=async t=>{while(ctx.currentTime<t)await wait(1)};
  setSound(0);await loadSound(0);
@@ -51,7 +52,7 @@ async def main():
         except Exception:b=await p.chromium.launch(args=a,channel='chrome') # sul PC dell'utente c'è solo Chrome
         ctx=await b.new_context(viewport={'width':1366,'height':768},accept_downloads=True);pg=await ctx.new_page()
         errs=[];pg.on('pageerror',lambda e:errs.append(str(e)))
-        await pg.goto((ROOT/'dist'/'giro.html').as_uri())
+        await pg.add_init_script(AXIOM);await pg.goto((ROOT/'dist'/'giro.html').as_uri())
         await pg.keyboard.press('Enter');await pg.wait_for_timeout(3500)
         with tempfile.TemporaryDirectory() as tmp:
             # senza loop niente file, solo l'avviso
@@ -89,7 +90,7 @@ async def main():
             ck(any(not n['overdub'] for n in log['notes']) and all(n['overdub'] or n['loop']==0 for n in log['notes']),'overdub falso solo nel primo giro')
             ck(all(n['midiTs']<=n['perfArrival'] for n in log['notes']),'midiTs e perfArrival sulla stessa scala')
             # Q spenta: qpos nullo, niente errori di calcolo
-            await pg.evaluate('''async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));const midi=(st,a,b)=>atEvent({timeStamp:performance.now()},()=>onMIDI({data:[st,a,b]}));
+            await pg.evaluate('''async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));const midi=(st,a,b)=>axiom.midi(st,a,b);
              setQuant(0);G.sel=1;midi(0xB0,18,127);await wait(50);for(const n of[80,81,82]){midi(0x90,n,100);await wait(170);midi(0x80,n,0);await wait(40)}midi(0xB0,18,127);await wait(300)}''')
             log2=json.loads((await scarica(pg,tmp)).read_text(encoding='utf-8'))
             sp=[n for n in log2['notes'] if n['pitch'] in (80,81,82)]
